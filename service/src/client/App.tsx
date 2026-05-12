@@ -848,18 +848,13 @@ function JobDetail({
 
   const runFeedback = async () => {
     try {
-      const data = await fetchJson<{ title: string; issueUrl: string; downloadUrl: string; zipName: string }>(`/api/jobs/${jobId}/feedback`, {
+      const data = await fetchJson<{ title: string; issueUrl: string; floatingUrl: string; zipName: string }>(`/api/jobs/${jobId}/feedback`, {
         method: "POST",
       });
       await navigator.clipboard?.writeText(data.title).catch(() => undefined);
-      const link = document.createElement("a");
-      link.href = data.downloadUrl;
-      link.download = data.zipName || "log.zip";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      window.open(data.floatingUrl, "_blank", "width=360,height=220");
       window.open(data.issueUrl, "_blank", "noopener,noreferrer");
-      notify("已生成 log.zip，Issue 标题已复制到剪贴板");
+      notify(`已生成 ${data.zipName || "log.zip"}，Issue 标题已复制到剪贴板`);
     } catch (error) {
       notify(error instanceof Error ? error.message : "生成反馈包失败");
     }
@@ -1073,6 +1068,10 @@ function JobDetail({
             <Bug className="h-4 w-4" />
             一键反馈
           </Button>
+          <Button variant="secondary" onClick={() => fetch("/api/open-feedback-folder")}>
+            <FolderOpen className="h-4 w-4" />
+            查看反馈文件夹
+          </Button>
           <Button variant="destructive" onClick={() => deleteJob({ id: jobId, title }, backToList)}>
             <Trash2 className="h-4 w-4" />
             删除任务
@@ -1179,6 +1178,7 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
   const [parallelism, setParallelism] = useState(() => localStorage.getItem("parallelism") || "3");
   const [status, setStatus] = useState<{ text: string; tone: "ok" | "error" | "neutral" } | null>(null);
   const [isVerifyingApi, setIsVerifyingApi] = useState(false);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   useEffect(() => {
     fetchJson<{ apiKeySet: boolean; apiEndpoint: string; model: string; parallelism: number }>("/api/settings")
@@ -1246,6 +1246,34 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
       }
     } catch (error) {
       setStatus({ text: `检测失败：${error instanceof Error ? error.message : "未知错误"}`, tone: "error" });
+    }
+  };
+
+  const checkUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setStatus({ text: "正在检查 GitHub Release...", tone: "neutral" });
+    try {
+      const data = await fetchJson<{
+        currentVersion: string;
+        latestVersion: string;
+        hasUpdate: boolean;
+        htmlUrl: string;
+        name?: string;
+        noRelease?: boolean;
+      }>("/api/check-updates");
+      if (data.noRelease) {
+        setStatus({ text: `当前版本 ${data.currentVersion}。GitHub 暂无 Release，已打开 Releases 页面。`, tone: "neutral" });
+        window.open(data.htmlUrl, "_blank", "noopener,noreferrer");
+      } else if (data.hasUpdate) {
+        setStatus({ text: `发现新版本 ${data.latestVersion}（当前 ${data.currentVersion}），已打开 Release 页面。`, tone: "ok" });
+        window.open(data.htmlUrl, "_blank", "noopener,noreferrer");
+      } else {
+        setStatus({ text: `当前已是最新版本：${data.currentVersion}`, tone: "ok" });
+      }
+    } catch (error) {
+      setStatus({ text: error instanceof Error ? error.message : "检查更新失败", tone: "error" });
+    } finally {
+      setIsCheckingUpdate(false);
     }
   };
 
@@ -1355,6 +1383,25 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
                 {status.text}
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/85 animate-in [animation-delay:120ms]">
+          <CardHeader>
+            <CardTitle>应用更新</CardTitle>
+            <CardDescription>通过 GitHub Releases 检查桌面应用的新版本。</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Button variant="secondary" onClick={checkUpdates} disabled={isCheckingUpdate}>
+              {isCheckingUpdate ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              检查更新
+            </Button>
+            <Button variant="outline" asChild>
+              <a href="https://github.com/fanrj3/arxivTexTranslate/releases" target="_blank" rel="noreferrer">
+                <ExternalLink className="h-4 w-4" />
+                打开 Releases
+              </a>
+            </Button>
           </CardContent>
         </Card>
       </main>

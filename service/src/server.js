@@ -15,9 +15,12 @@ const app = express();
 const PORT = parseInt(process.env.PORT) || 3456;
 const DATA_DIR = process.env.ARXIV_SERVICE_DATA_DIR || path.join(__dirname, "..");
 const JOBS_DIR = path.join(DATA_DIR, "jobs");
+const FEEDBACK_DIR = path.join(DATA_DIR, "feedback");
 const DIST_DIR = path.join(__dirname, "..", "dist");
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
+const PACKAGE_FILE = path.join(__dirname, "..", "package.json");
+const GITHUB_RELEASES_API = "https://api.github.com/repos/fanrj3/arxivTexTranslate/releases/latest";
 const ARXIV_FETCH_TIMEOUT_MS = 90000;
 const TRANSLATION_PIPELINE_VERSION = "structured-block-v3";
 
@@ -26,6 +29,7 @@ import { analyzeLatexProject, repairProtectedCommandArgs, stripLatexComments, va
 const upload = multer({ dest: path.join(JOBS_DIR, "_uploads") });
 
 mkdirSync(JOBS_DIR, { recursive: true });
+mkdirSync(FEEDBACK_DIR, { recursive: true });
 mkdirSync(path.join(JOBS_DIR, "_uploads"), { recursive: true });
 
 function readPersistedSettings() {
@@ -287,6 +291,12 @@ const staticOptions = {
 };
 if (existsSync(DIST_DIR)) app.use(express.static(DIST_DIR, staticOptions));
 else app.use(express.static(PUBLIC_DIR, staticOptions));
+
+app.get("/feedback-floating.html", (_req, res, next) => {
+  const fp = path.join(PUBLIC_DIR, "feedback-floating.html");
+  if (existsSync(fp)) return res.sendFile(fp);
+  next();
+});
 
 // ── Helpers ──
 
@@ -588,14 +598,18 @@ app.post("/api/jobs/:id/feedback", async (req, res) => {
       jobId: req.params.id,
       meta,
       serviceRoot: DATA_DIR,
-      outputDir: path.join(JOBS_DIR, "_feedback"),
+      outputDir: FEEDBACK_DIR,
     });
+    const zipParam = encodeURIComponent(result.zipName);
+    const titleParam = encodeURIComponent(result.title);
     res.json({
       ok: true,
       title: result.title,
       issueUrl: result.issueUrl,
       zipName: result.zipName,
-      downloadUrl: `/api/feedback/${encodeURIComponent(result.zipName)}`,
+      downloadUrl: `/api/feedback/${zipParam}`,
+      floatingUrl: `/feedback-floating.html?file=${zipParam}&title=${titleParam}`,
+      feedbackFolderUrl: "/api/open-feedback-folder",
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1203,6 +1217,68 @@ function rawUsageForVerify(data) {
   };
 }
 
+function readAppVersion() {
+  try {
+    return JSON.parse(readFileSync(PACKAGE_FILE, "utf-8")).version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function normalizeVersion(value = "") {
+  return String(value).trim().replace(/^v/i, "");
+}
+
+function compareVersions(a = "", b = "") {
+  const left = normalizeVersion(a).split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
+  const right = normalizeVersion(b).split(/[.-]/).map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(left.length, right.length);
+  for (let i = 0; i < length; i++) {
+    if ((left[i] || 0) > (right[i] || 0)) return 1;
+    if ((left[i] || 0) < (right[i] || 0)) return -1;
+  }
+  return 0;
+}
+
+app.get("/api/check-updates", async (_req, res) => {
+  const currentVersion = readAppVersion();
+  try {
+    const response = await undiciFetch(GITHUB_RELEASES_API, {
+      headers: {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": `arxiv-translate/${currentVersion}`,
+      },
+    });
+    const text = await response.text();
+    if (response.status === 404) {
+      return res.json({
+        currentVersion,
+        latestVersion: "",
+        hasUpdate: false,
+        name: "",
+        htmlUrl: "https://github.com/fanrj3/arxivTexTranslate/releases",
+        publishedAt: "",
+        body: "No GitHub release is available yet.",
+        noRelease: true,
+      });
+    }
+    if (!response.ok) return res.status(response.status).json({ error: `GitHub releases HTTP ${response.status}: ${text.slice(0, 300)}` });
+    const release = JSON.parse(text);
+    const latestVersion = normalizeVersion(release.tag_name || release.name || "");
+    res.json({
+      currentVersion,
+      latestVersion,
+      hasUpdate: latestVersion ? compareVersions(latestVersion, currentVersion) > 0 : false,
+      name: release.name || release.tag_name || "",
+      htmlUrl: release.html_url || "https://github.com/fanrj3/arxivTexTranslate/releases",
+      publishedAt: release.published_at || "",
+      body: String(release.body || "").slice(0, 1200),
+    });
+  } catch (error) {
+    res.status(502).json({ error: `检查更新失败：${error.message}` });
+  }
+});
+
 // ── Download PDF (auto-detect in build/ or root) ──
 app.get("/api/download-pdf/:jobId", (req, res) => {
   const jobDir = path.join(JOBS_DIR, req.params.jobId);
@@ -1232,11 +1308,25 @@ app.get("/api/download/:jobId/:file", (req, res) => {
 
 app.get("/api/feedback/:file", (req, res) => {
   const fileName = path.basename(req.params.file);
-  const fp = path.join(JOBS_DIR, "_feedback", fileName);
+  const fp = path.join(FEEDBACK_DIR, fileName);
   if (!existsSync(fp) || !fileName.endsWith(".zip")) return res.status(404).send("Not found");
   res.setHeader("Content-Type", "application/zip");
   res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
   createReadStream(fp).pipe(res);
+});
+
+app.get("/api/feedback/:file/info", (req, res) => {
+  const fileName = path.basename(req.params.file);
+  const fp = path.join(FEEDBACK_DIR, fileName);
+  if (!existsSync(fp) || !fileName.endsWith(".zip")) return res.status(404).json({ error: "not found" });
+  const stat = statSync(fp);
+  res.json({
+    fileName,
+    filePath: fp,
+    size: stat.size,
+    createdAt: stat.birthtime?.toISOString?.() || stat.mtime.toISOString(),
+    downloadUrl: `/api/feedback/${encodeURIComponent(fileName)}`,
+  });
 });
 
 // ── Fetch arXiv source by ID/URL ──
@@ -1294,6 +1384,16 @@ app.get("/api/open/:jobId", async (req, res) => {
   const { exec } = await import("child_process");
   exec(`start "" "${jobDir}"`);
   res.json({ ok: true });
+});
+
+app.get("/api/open-feedback-folder", async (_req, res) => {
+  mkdirSync(FEEDBACK_DIR, { recursive: true });
+  const { exec } = await import("child_process");
+  const escaped = FEEDBACK_DIR.replace(/"/g, '""');
+  if (process.platform === "win32") exec(`start "" "${escaped}"`);
+  else if (process.platform === "darwin") exec(`open "${escaped}"`);
+  else exec(`xdg-open "${escaped}"`);
+  res.json({ ok: true, path: FEEDBACK_DIR });
 });
 
 // ── Start ──
