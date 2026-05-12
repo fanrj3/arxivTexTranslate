@@ -562,7 +562,8 @@ function hasUntranslatedEnglish(unit, translatedText) {
   if (residual.length === 0) return false;
   const sourcePlain = unit.protectedText.replace(/\s+/g, " ").trim();
   const targetPlain = String(translatedText || "").replace(/\s+/g, " ").trim();
-  return !/[\u3400-\u9fff]/.test(targetPlain) || sourcePlain === targetPlain || residual.some((line) => targetPlain.includes(line));
+  const captionStillHasEnglishProse = unit.type === "caption" && /[A-Za-z][A-Za-z\s,.;:()\-]{35,}/.test(targetPlain);
+  return captionStillHasEnglishProse || !/[\u3400-\u9fff]/.test(targetPlain) || sourcePlain === targetPlain || residual.some((line) => targetPlain.includes(line));
 }
 
 function placeholderSet(text) {
@@ -659,6 +660,40 @@ async function translateBatch({ relPath, targetPath, contextNote, texFileMap, ma
   return { batchResult, list };
 }
 
+async function retryTranslationUnits({ relPath, targetPath, contextNote, texFileMap, manifest, units, translations, rejectedUnits, usageParts, apiKey, apiEndpoint, model, onProgress, message }) {
+  if (!units.length) return;
+  onProgress?.({ type: "fallback", message });
+  const retryBatches = chunkUnits(units, 4500, 10);
+  for (let retryIndex = 0; retryIndex < retryBatches.length; retryIndex++) {
+    const retryBatch = retryBatches[retryIndex];
+    const { batchResult, list } = await translateBatch({
+      relPath,
+      targetPath,
+      contextNote,
+      texFileMap,
+      manifest,
+      batch: retryBatch,
+      batchIndex: retryIndex,
+      batchCount: retryBatches.length,
+      totalUnitCount: units.length,
+      apiKey,
+      apiEndpoint,
+      model,
+      onProgress,
+      retry: true,
+    });
+    usageParts.push(batchResult.usage);
+    for (const item of list) {
+      if (!item?.id || typeof item.text !== "string") continue;
+      const unit = units.find((candidate) => candidate.id === item.id);
+      if (!unit) continue;
+      const sanitized = sanitizeUnitTranslation(unit, item.text);
+      if (sanitized.ok) translations.set(item.id, sanitized.text);
+      else rejectedUnits.push({ id: item.id, reason: sanitized.reason });
+    }
+  }
+}
+
 export async function translateStructuredTexFile(relPath, content, contextNote, texFileMap, manifest, apiKey, apiEndpoint, model, onProgress) {
   const targetPath = translatedTexPath(relPath);
   const units = extractTranslationUnits(content, relPath);
@@ -726,38 +761,42 @@ export async function translateStructuredTexFile(relPath, content, contextNote, 
     });
   }
 
+  const missingAfterFirstPass = units.filter((unit) => !translations.has(unit.id));
+  await retryTranslationUnits({
+    relPath,
+    targetPath,
+    contextNote,
+    texFileMap,
+    manifest,
+    units: missingAfterFirstPass,
+    translations,
+    rejectedUnits,
+    usageParts,
+    apiKey,
+    apiEndpoint,
+    model,
+    onProgress,
+    message: `Retrying ${missingAfterFirstPass.length} missing or structurally unsafe units`,
+  });
+
   const residualUnits = units.filter((unit) => translations.has(unit.id) && hasUntranslatedEnglish(unit, translations.get(unit.id)));
   if (residualUnits.length > 0) {
-    onProgress?.({ type: "fallback", message: `Retrying ${residualUnits.length} units with untranslated English` });
-    const retryBatches = chunkUnits(residualUnits, 4500, 10);
-    for (let retryIndex = 0; retryIndex < retryBatches.length; retryIndex++) {
-      const retryBatch = retryBatches[retryIndex];
-      const { batchResult, list } = await translateBatch({
-        relPath,
-        targetPath,
-        contextNote,
-        texFileMap,
-        manifest,
-        batch: retryBatch,
-        batchIndex: retryIndex,
-        batchCount: retryBatches.length,
-        totalUnitCount: units.length,
-        apiKey,
-        apiEndpoint,
-        model,
-        onProgress,
-        retry: true,
-      });
-      usageParts.push(batchResult.usage);
-      for (const item of list) {
-        if (!item?.id || typeof item.text !== "string") continue;
-        const unit = units.find((candidate) => candidate.id === item.id);
-        if (!unit) continue;
-        const sanitized = sanitizeUnitTranslation(unit, item.text);
-        if (sanitized.ok) translations.set(item.id, sanitized.text);
-        else rejectedUnits.push({ id: item.id, reason: sanitized.reason });
-      }
-    }
+    await retryTranslationUnits({
+      relPath,
+      targetPath,
+      contextNote,
+      texFileMap,
+      manifest,
+      units: residualUnits,
+      translations,
+      rejectedUnits,
+      usageParts,
+      apiKey,
+      apiEndpoint,
+      model,
+      onProgress,
+      message: `Retrying ${residualUnits.length} units with untranslated English`,
+    });
   }
 
   const missing = units.filter((unit) => !translations.has(unit.id));

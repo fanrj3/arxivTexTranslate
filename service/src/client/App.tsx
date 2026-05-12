@@ -953,7 +953,7 @@ function JobDetail({
         method: "POST",
       });
       await navigator.clipboard?.writeText(data.title).catch(() => undefined);
-      window.open(data.floatingUrl, "_blank", "width=390,height=280");
+      window.open(data.floatingUrl, "_blank", "width=420,height=330");
       window.open(data.issueUrl, "_blank", "noopener,noreferrer");
       toast.success(`已生成 ${data.zipName || "log.zip"}，Issue 标题已复制`, { id: toastId });
     } catch (error) {

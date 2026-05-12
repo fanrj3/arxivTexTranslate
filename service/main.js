@@ -93,9 +93,11 @@ function showStartupError(error) {
 function feedbackWindowOptions() {
   const display = screen.getPrimaryDisplay().workArea;
   return {
-    width: 360,
-    height: 220,
-    x: display.x + display.width - 380,
+    width: 420,
+    height: 330,
+    minWidth: 420,
+    minHeight: 330,
+    x: display.x + display.width - 440,
     y: display.y + 90,
     frame: false,
     resizable: false,

@@ -53,6 +53,8 @@
         display: grid;
         gap: 10px;
         padding: 14px;
+        max-height: calc(100vh - 52px);
+        overflow: auto;
       }
       .hint {
         margin: 0;
@@ -61,6 +63,7 @@
         line-height: 1.55;
       }
       .zip {
+        -webkit-app-region: no-drag;
         display: grid;
         grid-template-columns: 42px minmax(0, 1fr);
         gap: 12px;
@@ -81,6 +84,7 @@
         gap: 8px;
       }
       .action {
+        -webkit-app-region: no-drag;
         flex: 1;
         border: 1px solid rgba(15, 23, 42, 0.12);
         border-radius: 10px;
@@ -138,7 +142,7 @@
         <button class="close" type="button" title="Close" aria-label="Close">x</button>
       </header>
       <main>
-        <p class="hint">Drag the ZIP below into the GitHub Issue body. If GitHub rejects this drag, open it in Explorer and drag the ZIP from there.</p>
+        <p class="hint">Drag the ZIP below into the GitHub Issue body. If GitHub rejects this drag, use Show in Explorer and drag the ZIP from there.</p>
         <div class="zip" draggable="true" id="zip-card">
           <div class="icon">ZIP</div>
           <div>
@@ -193,6 +197,7 @@
       card.addEventListener("dragstart", (event) => {
         if (!info) return;
         event.preventDefault();
+        metaEl.textContent = `${formatSize(info.size)} - dragging file`;
         window.feedbackBridge?.startDrag(info.filePath);
       });
 
