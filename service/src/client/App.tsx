@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Bug,
   CheckCircle2,
+  Columns2,
   ExternalLink,
   FileArchive,
   FileText,
@@ -16,7 +17,7 @@ import {
   Trash2,
   Wand2,
 } from "lucide-react";
-import { type ChangeEvent, type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type DragEvent, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -120,6 +121,15 @@ type ArxivSearchResult = {
   categories?: string[];
   absUrl?: string;
   pdfUrl?: string;
+};
+
+type PdfCompareInfo = {
+  originalUrl: string;
+  translatedUrl: string;
+  originalPages: number;
+  translatedPages: number;
+  pageCount: number;
+  renderer: boolean;
 };
 
 type FileTranslationStatus = {
@@ -227,6 +237,7 @@ function StatusBadge({ status, children }: { status?: string; children: React.Re
 
 export default function App() {
   const { path, navigate } = usePath();
+  const compareJobId = path.startsWith("/compare/") ? decodeURIComponent(path.slice("/compare/".length)) : "";
   const [jobs, setJobs] = useState<Job[]>([]);
   const [runningTasks, setRunningTasks] = useState<Record<string, RunningTask>>({});
   const [filter, setFilter] = useState("");
@@ -293,6 +304,8 @@ export default function App() {
     <div className="min-h-screen text-foreground">
       {path === "/settings" || path === "/settings.html" ? (
         <SettingsPage navigate={navigate} notify={notify} />
+      ) : compareJobId ? (
+        <PdfComparePage jobId={compareJobId} navigate={navigate} notify={notify} />
       ) : (
         <HomePage
           jobs={jobs}
@@ -472,7 +485,7 @@ function HomePage({
 
       <main className="mx-auto max-w-7xl px-6 py-6 max-sm:px-4">
         {selectedJobId ? (
-          <JobDetail jobId={selectedJobId} backToList={backToList} deleteJob={deleteJob} refreshJobs={refreshJobs} notify={notify} />
+          <JobDetail jobId={selectedJobId} backToList={backToList} deleteJob={deleteJob} refreshJobs={refreshJobs} navigate={navigate} notify={notify} />
         ) : (
           <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-6 max-lg:grid-cols-1">
             <section className="min-w-0">
@@ -506,7 +519,7 @@ function HomePage({
               <div className="grid gap-3">
                 {filteredJobs.length ? (
                   filteredJobs.map((job, index) => (
-                    <JobCard key={job.id} job={job} runningTask={runningTasks[job.id]} openDetail={openDetail} deleteJob={deleteJob} index={index} />
+                    <JobCard key={job.id} job={job} runningTask={runningTasks[job.id]} openDetail={openDetail} comparePdf={(id) => navigate(`/compare/${encodeURIComponent(id)}`)} deleteJob={deleteJob} index={index} />
                   ))
                 ) : (
                   <Card className="grid min-h-72 place-items-center border-dashed bg-card/70 text-center animate-in">
@@ -650,12 +663,14 @@ function JobCard({
   job,
   runningTask,
   openDetail,
+  comparePdf,
   deleteJob,
   index,
 }: {
   job: Job;
   runningTask?: RunningTask;
   openDetail: (id: string) => void;
+  comparePdf: (id: string) => void;
   deleteJob: (job: Pick<Job, "id" | "title">) => void;
   index: number;
 }) {
@@ -690,10 +705,16 @@ function JobCard({
       </div>
       <div className="flex items-center gap-2 max-sm:flex-wrap" onClick={(event) => event.stopPropagation()}>
         {job.hasPdf ? (
-          <Button variant="secondary" onClick={() => window.open(`/api/download-pdf/${job.id}`, "_blank")}>
-            <FileText className="h-4 w-4" />
-            打开 PDF
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => window.open(`/api/download-pdf/${job.id}`, "_blank")}>
+              <FileText className="h-4 w-4" />
+              打开 PDF
+            </Button>
+            <Button variant="secondary" onClick={() => comparePdf(job.id)}>
+              <Columns2 className="h-4 w-4" />
+              对照
+            </Button>
+          </>
         ) : job.hasCnTex ? (
           <Button onClick={() => openDetail(job.id)}>
             <Play className="h-4 w-4" />
@@ -722,12 +743,14 @@ function JobDetail({
   backToList,
   deleteJob,
   refreshJobs,
+  navigate,
   notify,
 }: {
   jobId: string;
   backToList: () => void;
   deleteJob: (job: Pick<Job, "id" | "title">, afterDelete?: () => void) => void;
   refreshJobs: () => Promise<void>;
+  navigate: (path: string) => void;
   notify: (message: string) => void;
 }) {
   const [meta, setMeta] = useState<JobMeta | null>(null);
@@ -1194,12 +1217,18 @@ function JobDetail({
         </div>
 
         {result === "pdf" && (
-          <Button asChild variant="secondary" className="w-fit">
-            <a href={`/api/download-pdf/${jobId}`} target="_blank" rel="noreferrer">
-              <FileText className="h-4 w-4" />
-              打开 PDF
-            </a>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="secondary" className="w-fit">
+              <a href={`/api/download-pdf/${jobId}`} target="_blank" rel="noreferrer">
+                <FileText className="h-4 w-4" />
+                打开 PDF
+              </a>
+            </Button>
+            <Button variant="secondary" onClick={() => navigate(`/compare/${encodeURIComponent(jobId)}`)}>
+              <Columns2 className="h-4 w-4" />
+              双页对照
+            </Button>
+          </div>
         )}
         {result && result !== "pdf" && (
           <ScrollArea className="max-h-80 rounded-lg border bg-muted/20">
@@ -1281,6 +1310,192 @@ function JobDetail({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: (path: string) => void; notify: (message: string) => void }) {
+  const [info, setInfo] = useState<PdfCompareInfo | null>(null);
+  const [title, setTitle] = useState(jobId);
+  const [isPreparing, setIsPreparing] = useState(true);
+  const [error, setError] = useState("");
+  const [hoveredPage, setHoveredPage] = useState<number | null>(null);
+  const leftRef = useRef<HTMLDivElement | null>(null);
+  const rightRef = useRef<HTMLDivElement | null>(null);
+  const syncingRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const toastId = toast.loading("正在准备双页 PDF 对照...");
+    setIsPreparing(true);
+    setError("");
+    Promise.all([
+      fetchJson<JobMeta>(`/api/jobs/${jobId}/metadata`).catch(() => null),
+      fetchJson<PdfCompareInfo>(`/api/pdf-compare/${jobId}/prepare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ xelatexPath: localStorage.getItem("xelatexPath") || "" }),
+      }),
+    ])
+      .then(([meta, prepared]) => {
+        if (cancelled) return;
+        if (meta?.title) setTitle(meta.title);
+        setInfo(prepared);
+        toast.success("双页对照已准备好", { id: toastId });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "准备双页对照失败";
+        setError(message);
+        toast.error(message, { id: toastId });
+      })
+      .finally(() => {
+        if (!cancelled) setIsPreparing(false);
+      });
+    return () => {
+      cancelled = true;
+      toast.dismiss(toastId);
+    };
+  }, [jobId]);
+
+  const syncScroll = (source: HTMLDivElement | null, target: HTMLDivElement | null) => {
+    if (!source || !target || syncingRef.current) return;
+    syncingRef.current = true;
+    const denominator = Math.max(1, source.scrollHeight - source.clientHeight);
+    const ratio = source.scrollTop / denominator;
+    target.scrollTop = ratio * Math.max(1, target.scrollHeight - target.clientHeight);
+    window.requestAnimationFrame(() => {
+      syncingRef.current = false;
+    });
+  };
+
+  const pages = Array.from({ length: Math.max(0, info?.pageCount || 0) }, (_, index) => index + 1);
+
+  return (
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-30 border-b border-border/80 bg-background/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-[68px] max-w-[1800px] items-center justify-between gap-4 px-6 max-sm:px-4">
+          <div className="min-w-0">
+            <Button variant="ghost" className="mb-1 h-auto px-0 py-0 text-primary hover:bg-transparent" onClick={() => navigate("/")}>
+              <ArrowLeft className="h-4 w-4" />
+              返回工作台
+            </Button>
+            <div className="truncate text-sm font-bold">{title}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <StatusBadge status={isPreparing ? "running" : error ? "empty" : "compiled"}>
+              {isPreparing ? "准备中" : error ? "准备失败" : `${info?.pageCount || 0} 页同步`}
+            </StatusBadge>
+            <Button asChild variant="secondary">
+              <a href={`/api/download-pdf/${jobId}`} target="_blank" rel="noreferrer">
+                <FileText className="h-4 w-4" />
+                中文 PDF
+              </a>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto grid max-w-[1800px] gap-4 px-6 py-5 max-sm:px-3">
+        {error && (
+          <Card className="border-destructive/30 bg-destructive/5">
+            <CardContent className="p-4 text-sm text-destructive">{error}</CardContent>
+          </Card>
+        )}
+
+        {isPreparing && (
+          <Card className="grid min-h-[55vh] place-items-center bg-card/80">
+            <CardContent className="flex items-center gap-3 text-sm text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              正在检查并生成英文/中文 PDF...
+            </CardContent>
+          </Card>
+        )}
+
+        {!isPreparing && info && info.renderer && pages.length > 0 && (
+          <div className="grid h-[calc(100vh-112px)] grid-cols-2 overflow-hidden rounded-lg border bg-card shadow-soft max-lg:h-auto max-lg:grid-cols-1">
+            <PdfPane
+              title="英文原文"
+              side="original"
+              jobId={jobId}
+              pages={pages}
+              paneRef={leftRef}
+              hoveredPage={hoveredPage}
+              setHoveredPage={setHoveredPage}
+              onScroll={() => syncScroll(leftRef.current, rightRef.current)}
+            />
+            <PdfPane
+              title="中文译文"
+              side="translated"
+              jobId={jobId}
+              pages={pages}
+              paneRef={rightRef}
+              hoveredPage={hoveredPage}
+              setHoveredPage={setHoveredPage}
+              onScroll={() => syncScroll(rightRef.current, leftRef.current)}
+            />
+          </div>
+        )}
+
+        {!isPreparing && info && !info.renderer && (
+          <div className="grid h-[calc(100vh-112px)] grid-cols-2 overflow-hidden rounded-lg border bg-card shadow-soft max-lg:grid-cols-1">
+            <iframe title="English PDF" className="h-full w-full border-0" src={`${info.originalUrl}#view=FitH`} />
+            <iframe title="Chinese PDF" className="h-full w-full border-0 border-l" src={`${info.translatedUrl}#view=FitH`} />
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function PdfPane({
+  title,
+  side,
+  jobId,
+  pages,
+  paneRef,
+  hoveredPage,
+  setHoveredPage,
+  onScroll,
+}: {
+  title: string;
+  side: "original" | "translated";
+  jobId: string;
+  pages: number[];
+  paneRef: MutableRefObject<HTMLDivElement | null>;
+  hoveredPage: number | null;
+  setHoveredPage: (page: number | null) => void;
+  onScroll: () => void;
+}) {
+  return (
+    <section className="flex min-h-0 flex-col border-l first:border-l-0">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b bg-muted/40 px-4">
+        <div className="font-bold">{title}</div>
+        <StatusBadge status="id">{pages.length} pages</StatusBadge>
+      </div>
+      <div ref={paneRef} className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4" onScroll={onScroll}>
+        <div className="mx-auto grid max-w-4xl gap-4">
+          {pages.map((page) => (
+            <div
+              key={`${side}-${page}`}
+              className={cn("rounded-lg border bg-background p-2 shadow-sm transition", hoveredPage === page && "border-primary shadow-primary")}
+              onMouseEnter={() => setHoveredPage(page)}
+              onMouseLeave={() => setHoveredPage(null)}
+            >
+              <div className="mb-2 flex items-center justify-between px-1 text-xs text-muted-foreground">
+                <span>{title}</span>
+                <span>Page {page}</span>
+              </div>
+              <img
+                className="block w-full rounded border bg-white"
+                loading="lazy"
+                alt={`${title} page ${page}`}
+                src={`/api/pdf-page/${encodeURIComponent(jobId)}/${side}/${page}.png`}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 

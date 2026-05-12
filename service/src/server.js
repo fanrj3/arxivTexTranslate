@@ -874,6 +874,75 @@ async function runLimited(items, limit, worker) {
   await Promise.all(runners);
 }
 
+function sourceTexFiles(jobDir, root = jobDir) {
+  const files = [];
+  for (const entry of readdirSync(jobDir)) {
+    if (entry === "build" || entry.startsWith(".")) continue;
+    const fp = path.join(jobDir, entry);
+    try {
+      if (statSync(fp).isDirectory()) {
+        files.push(...sourceTexFiles(fp, root));
+        continue;
+      }
+    } catch {
+      continue;
+    }
+    const rel = path.relative(root, fp).replace(/\\/g, "/");
+    if (isSourceTex(rel)) files.push(rel);
+  }
+  return files;
+}
+
+function mainSourceTex(jobDir) {
+  return pickMainTex(sourceTexFiles(jobDir));
+}
+
+function findPdfForStem(jobDir, stem, preferCn = false) {
+  const dirs = [path.join(jobDir, "build"), jobDir];
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    const pdfs = readdirSync(dir).filter(file => file.toLowerCase().endsWith(".pdf"));
+    const exact = stem && pdfs.find(file => file === `${stem}.pdf`);
+    const cn = pdfs.find(file => file.toLowerCase().endsWith("_cn.pdf"));
+    const nonCn = pdfs.find(file => !file.toLowerCase().endsWith("_cn.pdf"));
+    const pdf = exact || (preferCn ? cn : nonCn) || cn || pdfs[0];
+    if (pdf) return path.join(dir, pdf);
+  }
+  return "";
+}
+
+function runProcess(cmd, args, cwd, timeoutMs = 120000) {
+  return new Promise((resolve) => {
+    let stdout = "", stderr = "";
+    let proc;
+    try {
+      proc = spawn(cmd, args, { cwd, shell: false, windowsHide: true });
+    } catch (error) {
+      resolve({ exitCode: 1, stdout, stderr: error.message });
+      return;
+    }
+    const timer = setTimeout(() => {
+      try { proc.kill(); } catch {}
+    }, timeoutMs);
+    proc.stdout.on("data", (data) => { stdout += data.toString(); });
+    proc.stderr.on("data", (data) => { stderr += data.toString(); });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ exitCode: code ?? 1, stdout, stderr });
+    });
+    proc.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({ exitCode: 1, stdout, stderr: error.message });
+    });
+  });
+}
+
+async function pdfPageCount(pdfPath) {
+  const result = await runProcess("pdfinfo", [pdfPath], path.dirname(pdfPath), 30000);
+  const match = result.stdout.match(/^Pages:\s+(\d+)/m);
+  return match ? Number(match[1]) : 0;
+}
+
 function findTranslatedTexFiles(dir, root = dir) {
   const files = [];
   for (const entry of readdirSync(dir)) {
@@ -1463,6 +1532,108 @@ app.get("/api/check-updates", async (_req, res) => {
     });
   } catch (error) {
     res.status(502).json({ error: `检查更新失败：${error.message}` });
+  }
+});
+
+async function ensureComparePdf(jobDir, variant, xelatexPath = "") {
+  const meta = readMeta(jobDir);
+  if (variant === "translated") {
+    const cnFiles = findTranslatedTexFiles(jobDir);
+    const mainTex = meta.cnTex || cnFiles.find(isLikelyMainCnTex) || cnFiles[0];
+    if (!mainTex) throw new Error("No translated tex file found");
+    const stem = path.basename(mainTex, ".tex");
+    const existing = findPdfForStem(jobDir, stem, true);
+    if (existing && existsSync(existing)) return { texFile: mainTex, pdfPath: existing };
+    const { compilePaper } = await getCompiler();
+    const result = await compilePaper(jobDir, mainTex, null, { xelatexPath });
+    if (!result.success || !result.pdfPath) throw new Error(result.log || "Failed to compile translated PDF");
+    return { texFile: mainTex, pdfPath: result.pdfPath };
+  }
+
+  const mainTex = mainSourceTex(jobDir);
+  if (!mainTex) throw new Error("No source tex file found");
+  const stem = path.basename(mainTex, ".tex");
+  const existing = findPdfForStem(jobDir, stem, false);
+  if (existing && existsSync(existing)) return { texFile: mainTex, pdfPath: existing };
+  const { compilePaper } = await getCompiler();
+  const result = await compilePaper(jobDir, mainTex, null, { xelatexPath });
+  if (!result.success || !result.pdfPath) throw new Error(result.log || "Failed to compile original PDF");
+  return { texFile: mainTex, pdfPath: result.pdfPath };
+}
+
+// ── Side-by-side PDF compare ──
+app.post("/api/pdf-compare/:jobId/prepare", async (req, res) => {
+  try {
+    const jobDir = path.join(JOBS_DIR, req.params.jobId);
+    if (!existsSync(jobDir)) return res.status(404).json({ error: "job not found" });
+    const xelatexPath = String(req.body?.xelatexPath || "");
+    const original = await ensureComparePdf(jobDir, "original", xelatexPath);
+    const translated = await ensureComparePdf(jobDir, "translated", xelatexPath);
+    const [originalPages, translatedPages] = await Promise.all([
+      pdfPageCount(original.pdfPath),
+      pdfPageCount(translated.pdfPath),
+    ]);
+    res.json({
+      originalUrl: `/api/download-pdf/${encodeURIComponent(req.params.jobId)}/original`,
+      translatedUrl: `/api/download-pdf/${encodeURIComponent(req.params.jobId)}/translated`,
+      originalPages,
+      translatedPages,
+      pageCount: Math.max(originalPages || 0, translatedPages || 0),
+      renderer: Boolean(originalPages && translatedPages),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/download-pdf/:jobId/original", async (req, res) => {
+  try {
+    const jobDir = path.join(JOBS_DIR, req.params.jobId);
+    if (!existsSync(jobDir)) return res.status(404).send("No PDF found");
+    const { pdfPath } = await ensureComparePdf(jobDir, "original", "");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    createReadStream(pdfPath).pipe(res);
+  } catch (error) {
+    res.status(404).send(error.message || "No PDF found");
+  }
+});
+
+app.get("/api/download-pdf/:jobId/translated", async (req, res) => {
+  try {
+    const jobDir = path.join(JOBS_DIR, req.params.jobId);
+    if (!existsSync(jobDir)) return res.status(404).send("No PDF found");
+    const { pdfPath } = await ensureComparePdf(jobDir, "translated", "");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    createReadStream(pdfPath).pipe(res);
+  } catch (error) {
+    res.status(404).send(error.message || "No PDF found");
+  }
+});
+
+app.get("/api/pdf-page/:jobId/:variant/:page.png", async (req, res) => {
+  try {
+    const jobDir = path.join(JOBS_DIR, req.params.jobId);
+    if (!existsSync(jobDir)) return res.status(404).send("job not found");
+    const variant = req.params.variant === "original" ? "original" : "translated";
+    const page = Math.max(1, Math.min(9999, Number(req.params.page || 1)));
+    const { pdfPath } = await ensureComparePdf(jobDir, variant, "");
+    const cacheDir = path.join(jobDir, "build", "compare-pages");
+    if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
+    const outBase = path.join(cacheDir, `${variant}-${page}`);
+    const pngPath = `${outBase}.png`;
+    if (!existsSync(pngPath) || statSync(pngPath).mtimeMs < statSync(pdfPath).mtimeMs) {
+      const result = await runProcess("pdftoppm", ["-png", "-singlefile", "-r", "125", "-f", String(page), "-l", String(page), pdfPath, outBase], cacheDir, 60000);
+      if (result.exitCode !== 0 || !existsSync(pngPath)) {
+        return res.status(501).send(result.stderr || "PDF page renderer is not available");
+      }
+    }
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    createReadStream(pngPath).pipe(res);
+  } catch (error) {
+    res.status(500).send(error.message || "render failed");
   }
 });
 
