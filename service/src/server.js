@@ -26,11 +26,16 @@ const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 const PACKAGE_FILE = path.join(__dirname, "..", "package.json");
 const GITHUB_RELEASES_API = "https://api.github.com/repos/fanrj3/arxivTexTranslate/releases/latest";
 const ARXIV_FETCH_TIMEOUT_MS = 90000;
+const ARXIV_SEARCH_MIN_INTERVAL_MS = 3500;
+const ARXIV_SEARCH_CACHE_MS = 30 * 60 * 1000;
 const TRANSLATION_PIPELINE_VERSION = "structured-block-v3";
 
 import multer from "multer";
 import { analyzeLatexProject, repairProtectedCommandArgs, stripLatexComments, validateTranslatedTex } from "./services/latex-structure.js";
 const upload = multer({ dest: path.join(JOBS_DIR, "_uploads") });
+const arxivSearchCache = new Map();
+let lastArxivSearchAt = 0;
+let arxivSearchCooldownUntil = 0;
 
 mkdirSync(JOBS_DIR, { recursive: true });
 mkdirSync(FEEDBACK_DIR, { recursive: true });
@@ -258,11 +263,12 @@ function arxivFetchError(error, sourceUrl, proxyUrl) {
   const codes = collectNetworkCodes(error);
   const codeText = codes.length ? codes.join("/") : error?.code || error?.name || "NETWORK_ERROR";
   const proxyText = printableProxy(proxyUrl);
+  const targetName = sourceUrl.includes("/api/query") || sourceUrl.includes("/search/") ? "arXiv 搜索服务" : "arXiv 源码包";
   let hint = "请检查本机网络、防火墙，或在设置里填写 arXiv 代理地址，例如 http://127.0.0.1:7890。";
   if (proxyUrl) hint = "当前已使用代理，请确认代理服务正在运行，且允许访问 arxiv.org:443。";
   if (codes.includes("EACCES")) hint = "连接被系统或网络策略拒绝。通常是防火墙、公司/校园网策略，或 Node 未走代理导致。";
   if (codes.includes("ETIMEDOUT") || codes.includes("UND_ERR_CONNECT_TIMEOUT")) hint = "连接 arXiv 超时。通常是网络不稳定或代理不可用。";
-  const err = new Error(`无法下载 arXiv 源码包：${sourceUrl}。网络错误 ${codeText}；代理：${proxyText}。${hint}`);
+  const err = new Error(`无法访问 ${targetName}：${sourceUrl}。网络错误 ${codeText}；代理：${proxyText}。${hint}`);
   err.statusCode = 502;
   return err;
 }
@@ -277,10 +283,10 @@ function openSystemPath(targetPath) {
   }
 }
 
-async function fetchArxivSource(sourceUrl, explicitProxy = "") {
+async function fetchArxivSource(sourceUrl, explicitProxy = "", timeoutMs = ARXIV_FETCH_TIMEOUT_MS) {
   const proxyUrl = resolveProxy(sourceUrl, explicitProxy);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ARXIV_FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const options = {
       headers: { "User-Agent": "arxiv-translate/1.0" },
@@ -312,6 +318,13 @@ function firstXmlTag(entry, tag) {
   return decodeXml(match?.[1] || "");
 }
 
+function stripHtml(value = "") {
+  return decodeXml(String(value)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " "));
+}
+
 function parseArxivSearchFeed(xml) {
   const entries = String(xml || "").match(/<entry>[\s\S]*?<\/entry>/g) || [];
   return entries.map((entry) => {
@@ -335,6 +348,29 @@ function parseArxivSearchFeed(xml) {
   }).filter((item) => item.id && item.title);
 }
 
+function parseArxivHtmlSearch(html) {
+  const blocks = String(html || "").match(/<li class="arxiv-result"[\s\S]*?<\/li>/g) || [];
+  return blocks.map((block) => {
+    const idMatch = block.match(/https?:\/\/arxiv\.org\/abs\/([^"?#<]+)(?:[?#][^"]*)?/i)
+      || block.match(/arXiv:\s*([0-9]{4}\.[0-9]{4,5}(?:v\d+)?)/i);
+    const id = (idMatch?.[1] || "").replace(/v\d+$/, "");
+    const titleMatch = block.match(/<p class="title[^"]*"[^>]*>([\s\S]*?)<\/p>/i);
+    const abstractMatch = block.match(/<span class="abstract-full[^"]*"[^>]*>([\s\S]*?)<\/span>/i)
+      || block.match(/<span class="abstract-short[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+    const authorsBlock = block.match(/<p class="authors"[^>]*>([\s\S]*?)<\/p>/i)?.[1] || "";
+    const authors = [...authorsBlock.matchAll(/<a[^>]*>([\s\S]*?)<\/a>/gi)].map((match) => stripHtml(match[1])).filter(Boolean);
+    return {
+      id,
+      title: stripHtml(titleMatch?.[1] || ""),
+      summary: stripHtml(abstractMatch?.[1] || "").replace(/^Abstract:\s*/i, ""),
+      authors,
+      categories: [],
+      absUrl: id ? `https://arxiv.org/abs/${id}` : "",
+      pdfUrl: id ? `https://arxiv.org/pdf/${id}` : "",
+    };
+  }).filter((item) => item.id && item.title);
+}
+
 function arxivSearchQueries(raw) {
   const query = String(raw || "").trim();
   if (/^\d{4}\.\d{4,5}(?:v\d+)?$/.test(query)) return [`id:${query}`];
@@ -348,6 +384,60 @@ function arxivSearchQueries(raw) {
   if (terms.length) queries.push(terms.map((term) => `all:${term}`).join("+AND+"));
   queries.push(`all:${query.replace(/\s+/g, "+")}`);
   return [...new Set(queries)];
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchArxivSearch(searchQuery, maxResults, proxy) {
+  const cacheKey = `${proxy || ""}\n${maxResults}\n${searchQuery}`;
+  const cached = arxivSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < ARXIV_SEARCH_CACHE_MS) return cached.results;
+  if (Date.now() < arxivSearchCooldownUntil) {
+    const waitSeconds = Math.ceil((arxivSearchCooldownUntil - Date.now()) / 1000);
+    const error = new Error(`arXiv 搜索暂时被限流，请约 ${waitSeconds} 秒后再试。`);
+    error.statusCode = 429;
+    throw error;
+  }
+  const elapsed = Date.now() - lastArxivSearchAt;
+  if (elapsed < ARXIV_SEARCH_MIN_INTERVAL_MS) await delay(ARXIV_SEARCH_MIN_INTERVAL_MS - elapsed);
+  lastArxivSearchAt = Date.now();
+  const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(searchQuery)}&start=0&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`;
+  const resp = await fetchArxivSource(url, proxy, 15000);
+  if (resp.status === 429) {
+    const retryAfter = Number(resp.headers.get("retry-after") || 30);
+    arxivSearchCooldownUntil = Date.now() + Math.max(10, Math.min(120, retryAfter)) * 1000;
+    const error = new Error("arXiv 搜索返回 429，已经触发限流。请稍后再试，或直接输入 arXiv ID 下载。");
+    error.statusCode = 429;
+    throw error;
+  }
+  if (!resp.ok) {
+    const error = new Error(`arXiv search returned HTTP ${resp.status}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  const results = parseArxivSearchFeed(await resp.text());
+  arxivSearchCache.set(cacheKey, { createdAt: Date.now(), results });
+  return results;
+}
+
+async function fetchArxivWebSearch(rawQuery, maxResults, proxy) {
+  const cacheKey = `${proxy || ""}\nweb\n${maxResults}\n${rawQuery}`;
+  const cached = arxivSearchCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < ARXIV_SEARCH_CACHE_MS) return cached.results;
+  const params = new URLSearchParams({
+    query: rawQuery,
+    searchtype: "all",
+    abstracts: "show",
+    order: "-announced_date_first",
+    size: String(maxResults),
+  });
+  const resp = await fetchArxivSource(`https://arxiv.org/search/?${params.toString()}`, proxy, 10000);
+  if (!resp.ok) return [];
+  const results = parseArxivHtmlSearch(await resp.text());
+  arxivSearchCache.set(cacheKey, { createdAt: Date.now(), results });
+  return results;
 }
 
 app.use(express.json({ limit: "50mb" }));
@@ -1433,16 +1523,27 @@ app.get("/api/search-arxiv", async (req, res) => {
     const maxResults = Math.max(1, Math.min(20, Number(req.query.maxResults || 8)));
     if (!query) return res.json({ results: [] });
     const proxy = String(req.query.proxy || "");
-    let lastStatus = 0;
+    let rateLimited = false;
+    let lastError = null;
     for (const searchQuery of arxivSearchQueries(query)) {
-      const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(searchQuery)}&start=0&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`;
-      const resp = await fetchArxivSource(url, proxy);
-      lastStatus = resp.status;
-      if (!resp.ok) continue;
-      const results = parseArxivSearchFeed(await resp.text());
-      if (results.length) return res.json({ results, query: searchQuery });
+      try {
+        const results = await fetchArxivSearch(searchQuery, maxResults, proxy);
+        if (results.length) return res.json({ results, query: searchQuery, source: "export.arxiv.org" });
+      } catch (error) {
+        if (error.statusCode === 429) {
+          rateLimited = true;
+          break;
+        }
+        lastError = error;
+        break;
+      }
     }
-    if (lastStatus && lastStatus !== 200) return res.status(502).json({ error: `arXiv search returned HTTP ${lastStatus}` });
+    const webResults = await fetchArxivWebSearch(query, maxResults, proxy).catch(() => []);
+    if (webResults.length) return res.json({ results: webResults, query, source: "arxiv.org/search", exportRateLimited: rateLimited });
+    if (rateLimited) {
+      return res.status(429).json({ error: "arXiv 搜索服务暂时限流。请稍后再试，或直接输入 arXiv ID 下载源码。" });
+    }
+    if (lastError) throw lastError;
     res.json({ results: [] });
   } catch (error) {
     res.status(error.statusCode || 500).json({ error: error.message });

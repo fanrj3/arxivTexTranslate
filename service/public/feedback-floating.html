@@ -158,12 +158,11 @@
         if (!response.ok || data.error) throw new Error(data.error || "Failed to read file info");
         info = data;
         nameEl.textContent = data.fileName;
-        metaEl.textContent = `${formatSize(data.size)} · drag to upload`;
+        metaEl.textContent = `${formatSize(data.size)} - drag to upload`;
       }
 
       card.addEventListener("dragstart", (event) => {
         if (!info) return;
-        event.preventDefault();
         event.dataTransfer.effectAllowed = "copy";
         window.feedbackBridge?.startDrag(info.filePath);
       });
