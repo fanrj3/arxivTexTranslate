@@ -14,3 +14,13 @@ tsconfig.tsbuildinfo
 .scaffold
 build
 logs
+# Local/generated files
+/prefs.js
+/texput.log
+/service/dist/
+/service/release/
+/service/jobs/
+/service/settings.json
+/service/server*.log
+/plugin/*.tmp
+

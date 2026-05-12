@@ -1,0 +1,8 @@
+node_modules/
+dist/
+release/
+jobs/
+settings.json
+server*.log
+*.log
+.env

@@ -4,25 +4,53 @@
 <groupbox
   onload="Zotero.__addonInstance__.hooks.onPrefsEvent('load', { window })"
 >
-  <label><html:h2 data-l10n-id="pref-title"></html:h2></label>
-  <checkbox
-    id="zotero-prefpane-__addonRef__-enable"
-    preference="enable"
-    data-l10n-id="pref-enable"
-  />
-  <hbox>
+  <label><html:h2 data-l10n-id="pref-service-section"></html:h2></label>
+
+  <hbox align="center">
     <html:label
-      for="zotero-prefpane-__addonRef__-input"
-      data-l10n-id="pref-input"
+      for="zotero-prefpane-__addonRef__-serviceUrl"
+      data-l10n-id="pref-service-url"
     ></html:label>
     <html:input
       type="text"
-      id="zotero-prefpane-__addonRef__-input"
-      preference="input"
-    ></html:input>
+      id="zotero-prefpane-__addonRef__-serviceUrl"
+      preference="serviceUrl"
+      flex="1"
+    />
+    <button
+      label="Verify"
+      oncommand="Zotero.__addonInstance__.hooks.onPrefsEvent('verifyService', { window })"
+    />
   </hbox>
-  <hbox class="virtualized-table-container" flex="1" height="300px">
-    <html:div id="__addonRef__-table-container" />
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-parallelism"
+      data-l10n-id="pref-parallelism"
+    ></html:label>
+    <html:input
+      type="number"
+      min="1"
+      max="8"
+      id="zotero-prefpane-__addonRef__-parallelism"
+      preference="parallelism"
+      flex="1"
+    />
+  </hbox>
+
+  <label><html:h2 data-l10n-id="pref-output-section"></html:h2></label>
+
+  <hbox align="center">
+    <html:label
+      for="zotero-prefpane-__addonRef__-outputDir"
+      data-l10n-id="pref-output-dir"
+    ></html:label>
+    <html:input
+      type="text"
+      id="zotero-prefpane-__addonRef__-outputDir"
+      preference="outputDir"
+      flex="1"
+    />
   </hbox>
 </groupbox>
 <vbox>

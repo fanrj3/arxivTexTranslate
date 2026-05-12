@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "__addonName__",
   "version": "__buildVersion__",
-  "description": "__description__",
+  "description": "Add Chinese arXiv translation PDFs to Zotero through an external translation and compilation service.",
   "homepage_url": "__homepage__",
   "author": "__author__",
   "icons": {

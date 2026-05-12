@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f8fafc">
+<title>arXiv Translate</title>
+<style>
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 173 80% 28%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 173 80% 28%;
+    --ok: 153 64% 32%;
+    --warn: 38 92% 36%;
+    --info: 214 62% 40%;
+    --radius: 10px;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, .05);
+    --shadow-md: 0 14px 34px rgba(15, 23, 42, .10);
+    --shadow-lg: 0 24px 60px rgba(15, 23, 42, .14);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    color: hsl(var(--foreground));
+    background:
+      radial-gradient(circle at 12% 6%, rgba(15, 118, 110, .13), transparent 28%),
+      radial-gradient(circle at 86% 0%, rgba(47, 95, 152, .10), transparent 30%),
+      hsl(var(--background));
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(rgba(15, 23, 42, .045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15, 23, 42, .045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, rgba(0,0,0,.80), rgba(0,0,0,.16));
+  }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; opacity: .55; transform: none !important; box-shadow: none !important; }
+  a { color: inherit; }
+
+  .app-shell {
+    min-height: 100vh;
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 22px;
+    border-right: 1px solid hsl(var(--border));
+    background: rgba(255, 255, 255, .72);
+    backdrop-filter: blur(18px);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .brand-mark {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: var(--radius);
+    color: hsl(var(--primary-foreground));
+    background: linear-gradient(135deg, hsl(var(--primary)), #2f5f98);
+    box-shadow: 0 12px 24px rgba(15, 118, 110, .22);
+    font-weight: 900;
+  }
+  .brand h1 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+  .brand p {
+    margin: 4px 0 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+  }
+  .sidebar-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .panel {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: rgba(255, 255, 255, .82);
+    box-shadow: var(--shadow-sm);
+  }
+  .panel-body {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+  }
+  .panel-title {
+    margin: 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .input-row { display: flex; gap: 8px; }
+  .input, .title-input {
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    border: 1px solid hsl(var(--input));
+    border-radius: calc(var(--radius) - 2px);
+    background: rgba(255,255,255,.90);
+    color: hsl(var(--foreground));
+    padding: 0 12px;
+    outline: none;
+    transition: border-color .18s, box-shadow .18s, transform .18s cubic-bezier(.2,.8,.2,1);
+  }
+  .input:focus, .title-input:focus {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, .14);
+    transform: translateY(-1px);
+  }
+
+  .btn {
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: calc(var(--radius) - 2px);
+    border: 1px solid transparent;
+    padding: 0 14px;
+    font-weight: 800;
+    white-space: nowrap;
+    text-decoration: none;
+    transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s, background .18s, border-color .18s, color .18s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary {
+    color: hsl(var(--primary-foreground));
+    background: hsl(var(--primary));
+  }
+  .btn-primary:hover { box-shadow: 0 12px 22px rgba(15, 118, 110, .22); }
+  .btn-secondary {
+    color: hsl(var(--secondary-foreground));
+    background: hsl(var(--secondary));
+    border-color: hsl(var(--border));
+  }
+  .btn-secondary:hover {
+    background: hsl(var(--accent));
+    box-shadow: 0 8px 20px rgba(15, 23, 42, .08);
+  }
+  .btn-destructive {
+    color: hsl(var(--destructive));
+    background: rgba(255,255,255,.78);
+    border-color: rgba(220, 38, 38, .22);
+  }
+  .btn-destructive:hover {
+    color: hsl(var(--destructive-foreground));
+    background: hsl(var(--destructive));
+    box-shadow: 0 12px 22px rgba(220, 38, 38, .18);
+  }
+  .btn-icon {
+    width: 40px;
+    flex: 0 0 auto;
+    padding: 0;
+  }
+  .icon {
+    width: 16px;
+    height: 16px;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    fill: none;
+  }
+
+  .dropzone {
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    gap: 8px;
+    min-height: 126px;
+    padding: 16px;
+    border: 1px dashed hsl(var(--border));
+    border-radius: calc(var(--radius) - 2px);
+    background: linear-gradient(135deg, rgba(255,255,255,.92), rgba(240,253,250,.70));
+    outline: none;
+    transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s, border-color .2s, background .2s;
+  }
+  .dropzone::after {
+    content: "";
+    position: absolute;
+    inset: auto -20% 0 -20%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary)), #2f5f98, transparent);
+    opacity: .56;
+    animation: scan 2.8s ease-in-out infinite;
+  }
+  .dropzone:hover, .dropzone.dragover, .dropzone:focus-visible {
+    transform: translateY(-2px);
+    border-color: rgba(15, 118, 110, .45);
+    box-shadow: 0 14px 30px rgba(15, 118, 110, .13);
+  }
+  .dropzone strong { font-size: 14px; }
+  .dropzone span {
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stat {
+    padding: 13px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: rgba(255,255,255,.78);
+    transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s;
+  }
+  .stat:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(15,23,42,.07); }
+  .stat b { display: block; font-size: 24px; line-height: 1; }
+  .stat span { color: hsl(var(--muted-foreground)); font-size: 12px; }
+
+  .main {
+    min-width: 0;
+    padding: 30px;
+  }
+  .toolbar {
+    max-width: 1120px;
+    margin: 0 auto 20px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+  }
+  .toolbar h2 {
+    margin: 0;
+    font-size: 28px;
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+  .toolbar p {
+    margin: 8px 0 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 14px;
+  }
+  .toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .search {
+    width: 278px;
+  }
+  .content {
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+  .job-list {
+    display: grid;
+    gap: 12px;
+  }
+  .job-card {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 14px;
+    padding: 17px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: rgba(255,255,255,.82);
+    box-shadow: var(--shadow-sm);
+    animation: card-in .34s cubic-bezier(.2,.8,.2,1) both;
+    transition: transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s, border-color .2s, background .2s;
+  }
+  .job-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(15, 118, 110, .32);
+    background: rgba(255,255,255,.94);
+    box-shadow: var(--shadow-md);
+  }
+  .job-main {
+    min-width: 0;
+    display: grid;
+    gap: 10px;
+  }
+  .job-title {
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    color: hsl(var(--muted-foreground));
+    font-size: 12px;
+  }
+  .badge {
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 2px 9px;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .badge-id {
+    color: hsl(var(--info));
+    background: rgba(47, 95, 152, .11);
+    font-family: "Cascadia Code", Consolas, monospace;
+  }
+  .badge-compiled { color: hsl(var(--ok)); background: rgba(22, 131, 93, .11); }
+  .badge-translated { color: hsl(var(--warn)); background: rgba(217, 119, 6, .12); }
+  .badge-extracted { color: hsl(var(--info)); background: rgba(47, 95, 152, .11); }
+  .badge-empty { color: hsl(var(--destructive)); background: rgba(220, 38, 38, .10); }
+  .badge-running { color: hsl(var(--primary)); background: rgba(15, 118, 110, .11); }
+  .badge-running::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: currentColor;
+    animation: pulse .9s ease-in-out infinite;
+  }
+  .job-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .empty-state {
+    display: grid;
+    place-items: center;
+    gap: 8px;
+    min-height: 260px;
+    padding: 28px;
+    border: 1px dashed hsl(var(--border));
+    border-radius: var(--radius);
+    background: rgba(255,255,255,.72);
+    text-align: center;
+    animation: card-in .28s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .empty-state b { font-size: 16px; }
+  .empty-state span {
+    max-width: 360px;
+    color: hsl(var(--muted-foreground));
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .detail {
+    display: grid;
+    gap: 18px;
+    padding: 22px;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: rgba(255,255,255,.86);
+    box-shadow: var(--shadow-sm);
+    animation: panel-in .24s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .detail-head {
+    display: grid;
+    gap: 12px;
+  }
+  .back-btn {
+    justify-self: start;
+    height: 32px;
+    border: 0;
+    background: transparent;
+    color: hsl(var(--primary));
+    padding: 0;
+    font-weight: 900;
+  }
+  .title-input {
+    height: auto;
+    min-height: 44px;
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: transparent;
+    padding: 4px 0 10px;
+    font-size: 24px;
+    font-weight: 900;
+  }
+  .detail-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .stream, .result pre {
+    overflow: auto;
+    max-height: 340px;
+    margin: 0;
+    border-radius: var(--radius);
+    background: linear-gradient(180deg, #101820, #0b1220);
+    color: #d1d5db;
+    padding: 15px;
+    font: 12px/1.7 "Cascadia Code", Consolas, monospace;
+  }
+  .stream:empty { display: none; }
+  .stream .phase { color: #7dd3fc; }
+  .stream .error { color: #fca5a5; }
+  .pdf-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    border-radius: calc(var(--radius) - 2px);
+    padding: 0 14px;
+    color: hsl(var(--primary));
+    background: rgba(15, 118, 110, .10);
+    font-weight: 900;
+    text-decoration: none;
+  }
+
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 18px;
+    background: rgba(15, 23, 42, .38);
+    backdrop-filter: blur(8px);
+    animation: fade-in .16s ease both;
+  }
+  .dialog {
+    width: min(440px, 100%);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
+    box-shadow: var(--shadow-lg);
+    padding: 20px;
+    animation: panel-in .18s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .dialog p {
+    margin: 0 0 18px;
+    color: hsl(var(--muted-foreground));
+    line-height: 1.65;
+  }
+  .dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .toast {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 30;
+    max-width: min(420px, calc(100vw - 44px));
+    border-radius: calc(var(--radius) - 2px);
+    background: hsl(var(--foreground));
+    color: hsl(var(--background));
+    padding: 10px 14px;
+    font-size: 13px;
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .18s, transform .18s;
+    pointer-events: none;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .hidden { display: none !important; }
+
+  @keyframes card-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(8px) scale(.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: .35; transform: scale(.8); }
+    50% { opacity: 1; transform: scale(1.15); }
+  }
+  @keyframes scan {
+    0%, 100% { transform: translateX(-12%); opacity: .22; }
+    50% { transform: translateX(12%); opacity: .75; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  @media (max-width: 980px) {
+    .app-shell { grid-template-columns: 1fr; }
+    .sidebar {
+      position: relative;
+      height: auto;
+      border-right: 0;
+      border-bottom: 1px solid hsl(var(--border));
+    }
+    .main { padding: 22px; }
+    .toolbar { align-items: stretch; flex-direction: column; }
+    .toolbar-actions { align-items: stretch; }
+    .search { width: 100%; }
+    .job-card { grid-template-columns: 1fr; }
+    .job-actions { flex-wrap: wrap; }
+  }
+  @media (max-width: 640px) {
+    .sidebar, .main { padding: 16px; }
+    .toolbar h2 { font-size: 24px; }
+    .input-row, .toolbar-actions { flex-direction: column; }
+    .btn-icon { width: 100%; }
+    .stats { grid-template-columns: 1fr; }
+    .title-input { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div>
+          <h1>arXiv Translate</h1>
+          <p>论文翻译与本地编译</p>
+        </div>
+      </div>
+      <a class="btn btn-secondary btn-icon" href="/settings.html" aria-label="设置" title="设置">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.12.36.33.7.6 1 .28.26.67.4 1.1.4H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51.6Z"/></svg>
+      </a>
+    </div>
+
+    <section class="panel">
+      <div class="panel-body">
+        <h2 class="panel-title">从 arXiv 拉取源码</h2>
+        <div class="input-row">
+          <input class="input" id="arxivInput" aria-label="arXiv ID 或 URL" placeholder="2407.08726 或 arxiv.org/abs/..." autocomplete="off" spellcheck="false">
+          <button class="btn btn-primary btn-icon" id="fetchBtn" title="拉取源码" aria-label="拉取源码">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-body">
+        <h2 class="panel-title">上传源码包</h2>
+        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="上传 arXiv 源码包">
+          <strong>选择或拖入 .tar.gz</strong>
+          <span>自动解包、识别主 tex 文件，并保存为一个本地任务。</span>
+          <input type="file" id="fileInput" accept=".tar.gz,.gz" hidden>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><b id="statTotal">0</b><span>论文</span></div>
+      <div class="stat"><b id="statDone">0</b><span>已编译</span></div>
+    </section>
+  </aside>
+
+  <main class="main">
+    <div id="listView">
+      <div class="toolbar">
+        <div>
+          <h2>论文任务</h2>
+          <p>翻译、编译和打开本地源码都在这里完成。</p>
+        </div>
+        <div class="toolbar-actions">
+          <input class="input search" id="filterInput" placeholder="搜索标题或 arXiv ID" autocomplete="off">
+          <button class="btn btn-secondary" id="refreshBtn">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.7"/><path d="M3 12a9 9 0 0 1 15.7-6.1"/><path d="M3 4v5h5"/><path d="M21 20v-5h-5"/></svg>
+            刷新
+          </button>
+        </div>
+      </div>
+      <div class="content">
+        <div id="jobList" class="job-list"></div>
+      </div>
+    </div>
+
+    <div id="detailView" class="content hidden"></div>
+  </main>
+</div>
+
+<div class="dialog-overlay hidden" id="confirmOverlay" role="dialog" aria-modal="true">
+  <div class="dialog">
+    <p id="confirmMsg"></p>
+    <div class="dialog-actions">
+      <button class="btn btn-secondary" id="confirmNo">取消</button>
+      <button class="btn btn-destructive" id="confirmYes">删除</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let currentJob = null;
+let confirmResolve = null;
+let activeStream = null;
+let jobsCache = [];
+let runningTasks = {};
+
+const $ = (id) => document.getElementById(id);
+
+const statusLabels = {
+  compiled: "已编译",
+  translated: "已翻译",
+  extracted: "已解包",
+  empty: "待处理"
+};
+
+function esc(value) {
+  const div = document.createElement("div");
+  div.textContent = value || "";
+  return div.innerHTML;
+}
+
+function param(value) {
+  return encodeURIComponent(value || "");
+}
+
+function showToast(message) {
+  const toast = $("toast");
+  toast.textContent = message;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 1800);
+}
+
+function askConfirm(message) {
+  return new Promise((resolve) => {
+    $("confirmMsg").textContent = message;
+    $("confirmOverlay").classList.remove("hidden");
+    confirmResolve = resolve;
+  });
+}
+
+function closeConfirm(value) {
+  $("confirmOverlay").classList.add("hidden");
+  confirmResolve?.(value);
+  confirmResolve = null;
+}
+
+async function fetchJson(url, options) {
+  const response = await fetch(url, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
+  return data;
+}
+
+function svg(name) {
+  const icons = {
+    pdf: '<svg class="icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M9 15h6"/><path d="M9 18h3"/></svg>',
+    play: '<svg class="icon" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>',
+    folder: '<svg class="icon" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>',
+    trash: '<svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/></svg>',
+    translate: '<svg class="icon" viewBox="0 0 24 24"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>',
+    back: '<svg class="icon" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>'
+  };
+  return icons[name] || "";
+}
+
+$("confirmYes").addEventListener("click", () => closeConfirm(true));
+$("confirmNo").addEventListener("click", () => closeConfirm(false));
+$("confirmOverlay").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) closeConfirm(false);
+});
+
+async function fetchArxiv() {
+  const query = $("arxivInput").value.trim();
+  if (!query) return;
+  const btn = $("fetchBtn");
+  btn.disabled = true;
+  btn.innerHTML = "...";
+  try {
+    const data = await fetchJson("/api/fetch-arxiv", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query })
+    });
+    $("arxivInput").value = "";
+    showToast("源码已拉取");
+    await refreshJobs();
+    await showDetail(data.jobId);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg>';
+  }
+}
+
+$("fetchBtn").addEventListener("click", fetchArxiv);
+$("arxivInput").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") fetchArxiv();
+});
+
+const dropzone = $("dropzone");
+const fileInput = $("fileInput");
+dropzone.addEventListener("click", () => fileInput.click());
+dropzone.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    fileInput.click();
+  }
+});
+dropzone.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  dropzone.classList.add("dragover");
+});
+dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+dropzone.addEventListener("drop", (event) => {
+  event.preventDefault();
+  dropzone.classList.remove("dragover");
+  handleFile(event.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => handleFile(fileInput.files[0]));
+
+async function handleFile(file) {
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const response = await fetch("/api/upload", { method: "POST", body: form });
+    const data = await response.json();
+    if (!response.ok || data.error) throw new Error(data.error || "上传失败");
+    showToast("源码包已上传");
+    await refreshJobs();
+    await showDetail(data.jobId);
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    fileInput.value = "";
+  }
+}
+
+async function refreshRunningTasks() {
+  try {
+    const tasks = await fetchJson("/api/tasks");
+    runningTasks = {};
+    for (const task of tasks) {
+      if (task.status !== "done" && task.status !== "error") runningTasks[task.jobId] = task;
+    }
+  } catch {
+    runningTasks = {};
+  }
+}
+
+async function refreshJobs() {
+  await refreshRunningTasks();
+  jobsCache = await fetchJson("/api/jobs");
+  renderJobs();
+}
+
+function renderJobs() {
+  const filter = $("filterInput").value.trim().toLowerCase();
+  const jobs = jobsCache.filter((job) => {
+    if (!filter) return true;
+    return `${job.id} ${job.title}`.toLowerCase().includes(filter);
+  });
+
+  $("statTotal").textContent = String(jobsCache.length);
+  $("statDone").textContent = String(jobsCache.filter((job) => job.status === "compiled").length);
+
+  if (!jobs.length) {
+    $("jobList").innerHTML = `<div class="empty-state"><b>还没有论文任务</b><span>输入 arXiv ID 或上传源码包开始。任务会出现在这里。</span></div>`;
+    return;
+  }
+
+  $("jobList").innerHTML = jobs.map((job, index) => {
+    const running = runningTasks[job.id];
+    const status = running ? "running" : job.status;
+    const action = job.hasPdf
+      ? `<button class="btn btn-secondary" onclick="event.stopPropagation(); openPdf('${job.id}')">${svg("pdf")}打开 PDF</button>`
+      : job.hasCnTex
+        ? `<button class="btn btn-primary" onclick="event.stopPropagation(); openAndCompile('${job.id}')">${svg("play")}编译</button>`
+        : `<button class="btn btn-primary" onclick="event.stopPropagation(); openAndTranslate('${job.id}')">${svg("translate")}翻译</button>`;
+
+    return `
+      <article class="job-card" style="animation-delay:${Math.min(index * 35, 240)}ms" role="button" tabindex="0" onclick="showDetail('${job.id}')" onkeydown="if(event.key==='Enter')showDetail('${job.id}')">
+        <div class="job-main">
+          <h3 class="job-title">${esc(job.title)}</h3>
+          <div class="meta">
+            <span class="badge badge-id">${esc(job.id)}</span>
+            <span class="badge badge-${status}">${running ? "运行中" : statusLabels[job.status] || job.status}</span>
+            <span>${job.fileCount || 0} 个文件</span>
+            ${job.relativeTime ? `<span>${esc(job.relativeTime)}</span>` : ""}
+          </div>
+        </div>
+        <div class="job-actions" onclick="event.stopPropagation()">
+          ${action}
+          <button class="btn btn-secondary" onclick="openFolder('${job.id}')">${svg("folder")}目录</button>
+          <button class="btn btn-destructive" onclick="deleteJob('${job.id}', '${param(job.title)}', true)" aria-label="删除任务">${svg("trash")}</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+$("filterInput").addEventListener("input", renderJobs);
+$("refreshBtn").addEventListener("click", () => refreshJobs().catch((error) => showToast(error.message)));
+
+function openPdf(id) {
+  window.open(`/api/download-pdf/${id}`, "_blank");
+}
+
+async function openFolder(id) {
+  await fetch(`/api/open/${id}`);
+}
+
+async function deleteJob(id, title, encoded = false) {
+  if (encoded) title = decodeURIComponent(title);
+  const ok = await askConfirm(`确定删除“${title}”？这会移除本地源码、翻译文件和编译输出。`);
+  if (!ok) return;
+  await fetch(`/api/jobs/${id}`, { method: "DELETE" });
+  if (currentJob === id) backToList();
+  await refreshJobs();
+  showToast("任务已删除");
+}
+
+async function openAndTranslate(id) {
+  await showDetail(id);
+  $("btnTranslate")?.click();
+}
+
+async function openAndCompile(id) {
+  await showDetail(id);
+  $("btnCompile")?.click();
+}
+
+async function showDetail(id) {
+  currentJob = id;
+  if (activeStream) {
+    activeStream.close();
+    activeStream = null;
+  }
+
+  $("listView").classList.add("hidden");
+  $("detailView").classList.remove("hidden");
+
+  const meta = await fetchJson(`/api/jobs/${id}/metadata`);
+  const title = meta.title || id;
+  const created = meta.createdAt ? new Date(meta.createdAt).toLocaleString("zh-CN") : "未知时间";
+
+  $("detailView").innerHTML = `
+    <section class="detail">
+      <div class="detail-head">
+        <button class="back-btn" id="backBtn">${svg("back")} 返回列表</button>
+        <input class="title-input" id="detailTitle" value="${esc(title)}" aria-label="论文标题">
+        <div class="meta">
+          <span class="badge badge-id">${esc(id)}</span>
+          <span>${meta.fileCount || "?"} 个文件</span>
+          <span>${created}</span>
+        </div>
+      </div>
+      <div id="taskStatus"></div>
+      <div id="streamPanel" class="stream"></div>
+      <div class="detail-actions">
+        <button class="btn btn-primary" id="btnTranslate">${svg("translate")}翻译中文</button>
+        <button class="btn btn-primary" id="btnCompile">${svg("play")}编译 PDF</button>
+        <button class="btn btn-secondary" id="btnOpenFolder">${svg("folder")}打开目录</button>
+        <button class="btn btn-destructive" id="btnDelete">${svg("trash")}删除任务</button>
+      </div>
+      <div id="detailResult" class="result">
+        ${meta.status === "compiled" ? `<a class="pdf-link" href="/api/download-pdf/${id}" target="_blank">${svg("pdf")}打开 PDF</a>` : ""}
+      </div>
+    </section>`;
+
+  $("backBtn").addEventListener("click", backToList);
+  $("detailTitle").addEventListener("blur", async function () {
+    const nextTitle = this.value.trim();
+    if (nextTitle && nextTitle !== title) {
+      await fetch(`/api/jobs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: nextTitle })
+      });
+      await refreshJobs();
+      showToast("标题已更新");
+    }
+  });
+  $("btnOpenFolder").addEventListener("click", () => openFolder(id));
+  $("btnDelete").addEventListener("click", () => deleteJob(id, title));
+  $("btnTranslate").addEventListener("click", () => {
+    const apiKey = localStorage.getItem("apiKey");
+    if (!apiKey) {
+      showToast("请先在设置中填写 API Key");
+      return;
+    }
+    runTranslate(
+      id,
+      apiKey,
+      localStorage.getItem("apiEndpoint") || "https://api.deepseek.com/anthropic",
+      localStorage.getItem("model") || "deepseek-v4-pro"
+    );
+  });
+  $("btnCompile").addEventListener("click", () => runCompile(id));
+  await reconnectTask(id);
+}
+
+function appendLog(message, className = "") {
+  const panel = $("streamPanel");
+  if (!panel) return;
+  const line = document.createElement("div");
+  line.className = className;
+  line.textContent = message;
+  panel.appendChild(line);
+  panel.scrollTop = panel.scrollHeight;
+}
+
+async function runTranslate(jobId, apiKey, apiEndpoint, model) {
+  const existing = await fetchJson(`/api/jobs/${jobId}/running-task`);
+  if (existing?.taskId) {
+    connectTask(existing.taskId);
+    return;
+  }
+
+  $("streamPanel").textContent = "";
+  appendLog("开始翻译源文件...", "phase");
+  try {
+    const data = await fetchJson("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobId, apiKey, apiEndpoint, model })
+    });
+    connectTask(data.taskId);
+  } catch (error) {
+    appendLog(error.message, "error");
+  }
+}
+
+function connectTask(taskId) {
+  $("taskStatus").innerHTML = `<span class="badge badge-running">翻译运行中</span>`;
+  if (activeStream) activeStream.close();
+  activeStream = new EventSource(`/api/tasks/${taskId}/stream`);
+  activeStream.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    for (const line of data.log || []) appendLog(line);
+    if (data.status === "done") {
+      appendLog("翻译完成，可以继续编译 PDF。", "phase");
+      $("taskStatus").innerHTML = `<span class="badge badge-translated">翻译完成</span>`;
+      activeStream.close();
+      activeStream = null;
+      refreshJobs();
+    } else if (data.status === "error") {
+      appendLog(data.result?.error || "翻译失败", "error");
+      $("taskStatus").innerHTML = `<span class="badge badge-empty">翻译失败</span>`;
+      activeStream.close();
+      activeStream = null;
+      refreshJobs();
+    }
+  };
+  activeStream.onerror = () => {
+    $("taskStatus").innerHTML = `<span class="badge badge-running">正在等待任务状态</span>`;
+    activeStream?.close();
+    activeStream = null;
+  };
+}
+
+async function reconnectTask(jobId) {
+  const data = await fetchJson(`/api/jobs/${jobId}/running-task`);
+  if (data?.taskId) connectTask(data.taskId);
+}
+
+async function runCompile(id) {
+  const panel = $("streamPanel");
+  const result = $("detailResult");
+  panel.textContent = "";
+  result.innerHTML = "";
+  appendLog("开始编译 PDF...", "phase");
+
+  const response = await fetch("/api/compile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jobId: id,
+      xelatexPath: localStorage.getItem("xelatexPath") || ""
+    })
+  });
+
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    const data = await response.json();
+    appendLog(data.error || "编译失败", "error");
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() || "";
+    for (const chunk of chunks) {
+      const line = chunk.split("\n").find((item) => item.startsWith("data: "));
+      if (!line) continue;
+      const data = JSON.parse(line.slice(6));
+      if (data.type === "start") {
+        appendLog(`使用 xelatex: ${data.xelatexPath || "xelatex"}`, "phase");
+      } else if (data.type === "step") {
+        if (data.step === "bibtex" && data.exitCode !== 0) {
+          appendLog("继续: bibtex 未生成参考文献索引，后续 XeLaTeX 会继续处理。", "phase");
+        } else {
+          appendLog(`${data.exitCode === 0 ? "成功" : "失败"}: ${data.step}`, data.exitCode === 0 ? "" : "error");
+        }
+      } else if (data.type === "done") {
+        if (data.success) {
+          appendLog("编译完成。", "phase");
+          result.innerHTML = `<a class="pdf-link" href="/api/download-pdf/${id}" target="_blank">${svg("pdf")}打开 PDF</a>`;
+          showToast("PDF 编译完成");
+        } else {
+          appendLog("编译失败，下面是日志末尾。", "error");
+          result.innerHTML = `<pre>${esc(data.log || "")}</pre>`;
+        }
+      } else if (data.type === "error") {
+        appendLog(data.message, "error");
+      }
+    }
+  }
+  await refreshJobs();
+}
+
+function backToList() {
+  if (activeStream) {
+    activeStream.close();
+    activeStream = null;
+  }
+  currentJob = null;
+  $("detailView").classList.add("hidden");
+  $("listView").classList.remove("hidden");
+  refreshJobs();
+}
+
+refreshJobs().catch((error) => showToast(error.message));
+setInterval(() => {
+  if (!currentJob) refreshJobs().catch(() => {});
+}, 5000);
+</script>
+</body>
+</html>

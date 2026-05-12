@@ -1,11 +1,6 @@
-item-section-example1-head-text =
-    .label = Plugin Template: Item Info
-item-section-example1-sidenav-tooltip =
-    .tooltiptext = This is Plugin Template section (item info)
-item-section-example2-head-text =
-    .label = Plugin Template: Reader [{$status}]
-item-section-example2-sidenav-tooltip =
-    .tooltiptext = This is Plugin Template section (reader)
-item-section-example2-button-tooltip =
-    .tooltiptext = Unregister this section
-item-info-row-example-label = Example Row
+item-section-translation-head-text =
+    .label = arXiv Translation Status
+item-section-translation-sidenav-tooltip =
+    .tooltiptext = View and manage arXiv paper translation
+item-info-row-arxiv-id-label = arXiv ID
+item-info-row-translation-status-label = Status

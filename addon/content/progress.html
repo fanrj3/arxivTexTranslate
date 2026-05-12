@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: -apple-system, sans-serif; padding: 16px; background: #fff; color: #222; }
+  h2 { margin: 0 0 12px 0; font-size: 15px; color: #1a1a2e; }
+  #steps { }
+  .step { display: flex; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; }
+  .step .icon { width: 20px; text-align: center; margin-right: 8px; font-size: 14px; }
+  .step .label { flex: 1; font-size: 13px; }
+  .step .time { font-size: 11px; color: #999; margin-left: 8px; min-width: 45px; text-align: right; }
+  .step.pending .icon { color: #ccc; }
+  .step.running .icon { color: #2196F3; }
+  .step.done .icon { color: #4CAF50; }
+  .step.error .icon { color: #f44336; }
+  .step .bar { width: 100%; height: 3px; background: #eee; margin-top: 2px; }
+  .step .bar-fill { height: 100%; background: #2196F3; transition: width 0.3s; }
+  .step.done .bar-fill { background: #4CAF50; }
+  .summary { margin-top: 16px; padding: 12px; background: #f5f5f5; border-radius: 6px; font-size: 13px; }
+  #closeBtn { margin-top: 12px; padding: 6px 16px; float: right; }
+</style>
+</head>
+<body>
+<h2>arXiv 论文翻译进度</h2>
+<div id="steps"></div>
+<div class="summary" id="summary" style="display:none;"></div>
+<button id="closeBtn" onclick="window.close()">关闭</button>
+<script>
+const steps = [
+  { id: 'download', label: '下载 arXiv 源码' },
+  { id: 'analyze', label: '分析论文结构' },
+  { id: 'translate', label: 'AI 翻译 (DeepSeek)' },
+  { id: 'compile', label: '编译 PDF (xelatex)' },
+  { id: 'attach', label: '添加到 Zotero' },
+];
+const container = document.getElementById('steps');
+const summary = document.getElementById('summary');
+const startTime = Date.now();
+
+function formatTime(ms) { return (ms / 1000).toFixed(1) + 's'; }
+
+for (const s of steps) {
+  const div = document.createElement('div');
+  div.className = 'step pending';
+  div.id = 'step-' + s.id;
+  div.innerHTML = '<span class="icon">○</span>' +
+    '<span class="label">' + s.label + '</span>' +
+    '<span class="time"></span>';
+  container.appendChild(div);
+}
+
+window.addEventListener('message', function(e) {
+  const d = e.data;
+  const el = document.getElementById('step-' + d.step);
+  if (!el) return;
+  if (d.type === 'start') {
+    el.className = 'step running';
+    el.querySelector('.icon').textContent = '⟳';
+  } else if (d.type === 'progress') {
+    el.className = 'step running';
+    el.querySelector('.time').textContent = d.detail || '';
+  } else if (d.type === 'done') {
+    el.className = 'step done';
+    el.querySelector('.icon').textContent = '✓';
+    const elapsed = formatTime(Date.now() - startTime);
+    el.querySelector('.time').textContent = d.detail ? d.detail + ' · ' + elapsed : elapsed;
+  } else if (d.type === 'error') {
+    el.className = 'step error';
+    el.querySelector('.icon').textContent = '✗';
+    el.querySelector('.time').textContent = d.detail || '';
+  } else if (d.type === 'complete') {
+    summary.style.display = 'block';
+    summary.textContent = '翻译完成！PDF 已添加到 Zotero。总共耗时: ' + formatTime(Date.now() - startTime);
+  } else if (d.type === 'failed') {
+    summary.style.display = 'block';
+    summary.innerHTML = '<b style="color:#f44336">翻译失败</b>: ' + (d.detail || '');
+  }
+});
+</script>
+</body>
+</html>

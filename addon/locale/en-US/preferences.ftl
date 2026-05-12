@@ -1,5 +1,9 @@
-pref-title = Addon Template Example
-pref-enable =
-    .label = Enable
-pref-input = Input
+pref-service-section = External Service
+pref-service-url =
+    .label = Service URL:
+pref-parallelism =
+    .label = Parallelism:
+pref-output-section = Zotero Attachment
+pref-output-dir =
+    .label = PDF Save Directory:
 pref-help = { $name } Build { $version } { $time }

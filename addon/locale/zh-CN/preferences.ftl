@@ -1,5 +1,9 @@
-pref-title = 插件模板设置示例
-pref-enable =
-    .label = 开启
-pref-input = 输入
-pref-help = { $name } Build { $version } { $time }
+pref-service-section = 外部服务
+pref-service-url =
+    .label = 服务地址:
+pref-parallelism =
+    .label = 并行数:
+pref-output-section = Zotero 附件
+pref-output-dir =
+    .label = PDF 保存目录:
+pref-help = { $name } 构建 { $version } { $time }

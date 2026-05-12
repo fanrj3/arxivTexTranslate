@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f8fafc">
+<title>设置 - arXiv Translate</title>
+<style>
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --primary: 173 80% 28%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 173 80% 28%;
+    --destructive: 0 72% 51%;
+    --radius: 10px;
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, .05);
+    --shadow-lg: 0 24px 60px rgba(15, 23, 42, .14);
+  }
+  * { box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    margin: 0;
+    color: hsl(var(--foreground));
+    background:
+      radial-gradient(circle at 15% 8%, rgba(15, 118, 110, .13), transparent 28%),
+      radial-gradient(circle at 86% 0%, rgba(47, 95, 152, .10), transparent 28%),
+      hsl(var(--background));
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(rgba(15, 23, 42, .045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15, 23, 42, .045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(to bottom, rgba(0,0,0,.80), rgba(0,0,0,.16));
+  }
+  button, input { font: inherit; }
+  a { color: inherit; }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    border-bottom: 1px solid hsl(var(--border));
+    background: rgba(255,255,255,.72);
+    backdrop-filter: blur(18px);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .mark {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius);
+    color: hsl(var(--primary-foreground));
+    background: linear-gradient(135deg, hsl(var(--primary)), #2f5f98);
+    box-shadow: 0 12px 24px rgba(15, 118, 110, .22);
+    font-weight: 900;
+  }
+  h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
+  .subtitle { margin-top: 2px; color: hsl(var(--muted-foreground)); font-size: 12px; }
+  .container {
+    width: min(860px, calc(100% - 32px));
+    margin: 28px auto;
+    display: grid;
+    gap: 16px;
+  }
+  .card {
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: rgba(255,255,255,.84);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(16px);
+    animation: enter .28s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .card-header { padding: 22px 22px 0; }
+  .card-title { margin: 0; font-size: 18px; font-weight: 900; }
+  .card-description {
+    margin: 7px 0 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .card-content {
+    display: grid;
+    gap: 14px;
+    padding: 18px 22px 22px;
+  }
+  .field { display: grid; gap: 7px; }
+  label { font-size: 13px; font-weight: 800; }
+  input {
+    width: 100%;
+    height: 40px;
+    border: 1px solid hsl(var(--input));
+    border-radius: calc(var(--radius) - 2px);
+    background: rgba(255,255,255,.90);
+    color: hsl(var(--foreground));
+    padding: 0 12px;
+    outline: none;
+    transition: border-color .18s, box-shadow .18s, transform .18s cubic-bezier(.2,.8,.2,1);
+  }
+  input:focus {
+    border-color: hsl(var(--ring));
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, .14);
+    transform: translateY(-1px);
+  }
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 4px;
+  }
+  .button {
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: calc(var(--radius) - 2px);
+    border: 1px solid transparent;
+    padding: 0 14px;
+    font-weight: 900;
+    cursor: pointer;
+    text-decoration: none;
+    transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s, background .18s, border-color .18s;
+  }
+  .button:hover { transform: translateY(-1px); }
+  .button-primary {
+    color: hsl(var(--primary-foreground));
+    background: hsl(var(--primary));
+  }
+  .button-primary:hover { box-shadow: 0 12px 22px rgba(15, 118, 110, .22); }
+  .button-secondary {
+    color: hsl(var(--secondary-foreground));
+    background: hsl(var(--secondary));
+    border-color: hsl(var(--border));
+  }
+  .button-secondary:hover { box-shadow: 0 8px 20px rgba(15, 23, 42, .08); }
+  .status {
+    display: none;
+    min-height: 38px;
+    align-items: center;
+    border-radius: calc(var(--radius) - 2px);
+    padding: 9px 11px;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .status.show { display: flex; animation: enter .18s cubic-bezier(.2,.8,.2,1) both; }
+  .status.ok { background: rgba(22, 131, 93, .10); color: #0f6b4b; }
+  .status.error { background: rgba(194, 65, 58, .10); color: hsl(var(--destructive)); }
+  .status.neutral { background: rgba(15, 118, 110, .10); color: hsl(var(--primary)); }
+  .toast {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    max-width: min(420px, calc(100vw - 44px));
+    border-radius: calc(var(--radius) - 2px);
+    background: hsl(var(--foreground));
+    color: hsl(var(--background));
+    padding: 10px 14px;
+    font-size: 13px;
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .18s, transform .18s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(8px) scale(.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .01ms !important;
+    }
+  }
+  @media (max-width: 640px) {
+    .topbar { padding: 0 16px; }
+    .container { margin: 18px auto; }
+    .card-header { padding: 18px 18px 0; }
+    .card-content { padding: 16px 18px 18px; }
+  }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="mark">A</div>
+    <div>
+      <h1>设置</h1>
+      <div class="subtitle">API 配置与 LaTeX 编译器路径</div>
+    </div>
+  </div>
+  <a class="button button-secondary" href="/">返回任务</a>
+</header>
+
+<main class="container">
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">翻译 API</h2>
+      <p class="card-description">配置会保存在本机 localStorage 中，仅用于当前应用发起翻译请求。</p>
+    </div>
+    <div class="card-content">
+      <div class="field">
+        <label for="apiKey">API Key</label>
+        <input type="password" id="apiKey" placeholder="sk-...">
+      </div>
+      <div class="field">
+        <label for="apiEndpoint">API Endpoint</label>
+        <input type="text" id="apiEndpoint" value="https://api.deepseek.com/anthropic">
+      </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <input type="text" id="model" value="deepseek-v4-pro">
+      </div>
+      <div class="actions">
+        <button class="button button-primary" id="saveApi">保存设置</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-header">
+      <h2 class="card-title">LaTeX 编译器</h2>
+      <p class="card-description">默认自动查找 xelatex；也可以指定 MiKTeX 或 TeX Live 的完整路径。</p>
+    </div>
+    <div class="card-content">
+      <div class="field">
+        <label for="xelatexPath">xelatex 路径</label>
+        <input type="text" id="xelatexPath" placeholder="C:\Program Files\MiKTeX\miktex\bin\x64\xelatex.exe">
+      </div>
+      <div class="actions">
+        <button class="button button-primary" id="btnDetect">自动检测</button>
+        <button class="button button-secondary" id="clearCompiler">清空自定义路径</button>
+      </div>
+      <div id="xelatexStatus" class="status"></div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const fields = {
+  apiKey: document.getElementById("apiKey"),
+  apiEndpoint: document.getElementById("apiEndpoint"),
+  model: document.getElementById("model"),
+  xelatexPath: document.getElementById("xelatexPath")
+};
+const statusBox = document.getElementById("xelatexStatus");
+const toast = document.getElementById("toast");
+
+fields.apiKey.value = localStorage.getItem("apiKey") || "";
+fields.apiEndpoint.value = localStorage.getItem("apiEndpoint") || "https://api.deepseek.com/anthropic";
+fields.model.value = localStorage.getItem("model") || "deepseek-v4-pro";
+fields.xelatexPath.value = localStorage.getItem("xelatexPath") || "";
+
+function saveAll() {
+  for (const [key, input] of Object.entries(fields)) {
+    localStorage.setItem(key, input.value.trim());
+  }
+  showToast("设置已保存");
+}
+
+function showToast(message) {
+  toast.textContent = message;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 1500);
+}
+
+function setStatus(message, kind) {
+  statusBox.textContent = message;
+  statusBox.className = `status show ${kind}`;
+}
+
+document.getElementById("saveApi").addEventListener("click", saveAll);
+for (const input of Object.values(fields)) input.addEventListener("change", saveAll);
+
+document.getElementById("btnDetect").addEventListener("click", async () => {
+  setStatus("正在检测 xelatex...", "neutral");
+  try {
+    const response = await fetch("/api/detect-xelatex");
+    const data = await response.json();
+    if (data.path) {
+      fields.xelatexPath.value = data.path;
+      localStorage.setItem("xelatexPath", data.path);
+      setStatus(`已找到：${data.path}`, "ok");
+    } else {
+      setStatus("没有找到 xelatex，请安装 MiKTeX/TeX Live 或手动填写完整路径。", "error");
+    }
+  } catch (error) {
+    setStatus(`检测失败：${error.message}`, "error");
+  }
+});
+
+document.getElementById("clearCompiler").addEventListener("click", () => {
+  fields.xelatexPath.value = "";
+  localStorage.removeItem("xelatexPath");
+  setStatus("已清空自定义路径，编译时会回到自动查找。", "neutral");
+});
+</script>
+</body>
+</html>
