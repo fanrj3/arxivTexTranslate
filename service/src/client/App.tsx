@@ -154,7 +154,13 @@ type PdfTextPage = {
   blocks?: PdfTextBlock[];
 };
 
-type HoverTarget = { page: number; blockIndex: number } | null;
+type PdfBlockMap = {
+  page: number;
+  originalToTranslated: Record<string, number[]>;
+  translatedToOriginal: Record<string, number[]>;
+};
+
+type HoverTarget = { page: number; side: "original" | "translated"; blockIndex: number } | null;
 
 type FileTranslationStatus = {
   path: string;
@@ -1491,9 +1497,11 @@ function PdfCompareSkeleton() {
   );
 }
 
-function matchedTextBlock(blocks: PdfTextBlock[] | undefined, target: HoverTarget) {
-  if (!target || !blocks?.length) return null;
-  return blocks.find((block) => block.index === target.blockIndex) || blocks[Math.min(target.blockIndex, blocks.length - 1)] || null;
+function isMappedBlock(side: "original" | "translated", block: PdfTextBlock, target: HoverTarget, blockMap: PdfBlockMap | null) {
+  if (!target || target.page !== blockMap?.page) return false;
+  if (target.side === side) return block.index === target.blockIndex;
+  const map = target.side === "original" ? blockMap.originalToTranslated : blockMap.translatedToOriginal;
+  return (map[String(target.blockIndex)] || []).includes(block.index);
 }
 
 function PdfPageView({
@@ -1513,14 +1521,21 @@ function PdfPageView({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [textPage, setTextPage] = useState<PdfTextPage | null>(null);
+  const [blockMap, setBlockMap] = useState<PdfBlockMap | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
     setTextPage(null);
+    setBlockMap(null);
     fetchJson<PdfTextPage>(`/api/pdf-text/${encodeURIComponent(jobId)}/${side}/${page}`)
       .then((data) => {
         if (!cancelled) setTextPage(data);
+      })
+      .catch(() => undefined);
+    fetchJson<PdfBlockMap>(`/api/pdf-block-map/${encodeURIComponent(jobId)}/${page}`)
+      .then((data) => {
+        if (!cancelled) setBlockMap(data);
       })
       .catch(() => undefined);
     return () => {
@@ -1529,7 +1544,6 @@ function PdfPageView({
   }, [jobId, side, page]);
 
   const textBlocks = textPage?.blocks?.length ? textPage.blocks : textPage?.lines.map((line, index) => ({ ...line, index }));
-  const highlighted = hoverTarget?.page === page ? matchedTextBlock(textBlocks, hoverTarget) : null;
   const aspectRatio = textPage?.width && textPage?.height ? `${textPage.width} / ${textPage.height}` : "0.72";
 
   return (
@@ -1546,7 +1560,7 @@ function PdfPageView({
           onLoad={() => setLoaded(true)}
         />
         {textBlocks?.map((block) => {
-          const active = highlighted?.id === block.id;
+          const active = isMappedBlock(side, block, hoverTarget, blockMap);
           return (
             <button
               key={block.id}
@@ -1563,7 +1577,7 @@ function PdfPageView({
                 width: `${Math.min(100, Math.max(1, block.w * 100))}%`,
                 height: `${Math.min(100, Math.max(1.2, block.h * 100))}%`,
               }}
-              onMouseEnter={() => setHoverTarget({ page, blockIndex: block.index })}
+              onMouseEnter={() => setHoverTarget({ page, side, blockIndex: block.index })}
               onMouseLeave={() => setHoverTarget(null)}
             />
           );

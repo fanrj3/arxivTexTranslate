@@ -1002,6 +1002,71 @@ function groupPdfTextBlocks(lines, pageNumber) {
   }));
 }
 
+function anchorTokens(text = "") {
+  const tokens = new Set();
+  const value = String(text || "");
+  for (const match of value.matchAll(/\[([^\]]{1,80})\]/g)) {
+    tokens.add(match[0].replace(/\s+/g, ""));
+    for (const part of match[1].split(/[,\s;]+/)) {
+      const cleaned = part.trim();
+      if (cleaned) tokens.add(`ref:${cleaned}`);
+      for (const num of cleaned.matchAll(/\d+/g)) tokens.add(`num:${num[0]}`);
+    }
+  }
+  for (const match of value.matchAll(/\b\d+(?:\.\d+)?%?\b/g)) tokens.add(`num:${match[0]}`);
+  for (const match of value.matchAll(/\b[A-Z][A-Z0-9-]{1,}\b/g)) tokens.add(`acro:${match[0].toLowerCase()}`);
+  return tokens;
+}
+
+function setOverlapScore(left, right) {
+  if (!left.size || !right.size) return 0;
+  let overlap = 0;
+  for (const token of left) if (right.has(token)) overlap++;
+  return (2 * overlap) / (left.size + right.size);
+}
+
+function mappableBlock(block) {
+  const text = String(block?.text || "").trim();
+  if (text.length < 8) return false;
+  if (block.y < 0.035 || block.y > 0.965) return false;
+  return true;
+}
+
+function blockPairScore(source, target, sourceRank, targetRank) {
+  const sourceAnchors = anchorTokens(source.text);
+  const targetAnchors = anchorTokens(target.text);
+  const anchorScore = setOverlapScore(sourceAnchors, targetAnchors);
+  const orderScore = 1 - Math.min(1, Math.abs(sourceRank - targetRank));
+  const yScore = 1 - Math.min(1, Math.abs(source.cy - target.cy) / 0.45);
+  const areaRatio = Math.min(source.w * source.h, target.w * target.h) / Math.max(source.w * source.h, target.w * target.h, 0.0001);
+  const hasAnchors = sourceAnchors.size > 0 || targetAnchors.size > 0;
+  const score = (hasAnchors ? anchorScore * 4 : 0) + orderScore * 0.85 + yScore * 0.25 + areaRatio * 0.15;
+  return { score, hasAnchors, anchorScore };
+}
+
+function mapPdfBlocks(sourceBlocks = [], targetBlocks = []) {
+  const source = sourceBlocks.filter(mappableBlock);
+  const target = targetBlocks.filter(mappableBlock);
+  const result = {};
+  for (let i = 0; i < source.length; i++) {
+    const block = source[i];
+    const sourceRank = source.length <= 1 ? 0 : i / (source.length - 1);
+    let best = null;
+    for (let j = 0; j < target.length; j++) {
+      const candidate = target[j];
+      const targetRank = target.length <= 1 ? 0 : j / (target.length - 1);
+      const scored = blockPairScore(block, candidate, sourceRank, targetRank);
+      if (!best || scored.score > best.score) best = { ...scored, block: candidate };
+    }
+    if (!best) continue;
+    const fallbackTarget = target[Math.min(target.length - 1, Math.max(0, Math.round(sourceRank * Math.max(0, target.length - 1))))];
+    const threshold = best.hasAnchors ? 1.2 : 0.78;
+    const mapped = best.score >= threshold ? best.block : fallbackTarget;
+    if (mapped) result[block.index] = [mapped.index];
+  }
+  return result;
+}
+
 async function pdfTextLines(pdfPath, pageNumber) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(readFileSync(pdfPath));
@@ -1054,6 +1119,18 @@ async function pdfTextLines(pdfPath, pageNumber) {
     height: viewport.height,
     lines: normalizedLines,
     blocks: groupPdfTextBlocks(normalizedLines, pageNumber),
+  };
+}
+
+async function pdfBlockMap(originalPdfPath, translatedPdfPath, page) {
+  const [original, translated] = await Promise.all([
+    pdfTextLines(originalPdfPath, page),
+    pdfTextLines(translatedPdfPath, page),
+  ]);
+  return {
+    page,
+    originalToTranslated: mapPdfBlocks(original.blocks || [], translated.blocks || []),
+    translatedToOriginal: mapPdfBlocks(translated.blocks || [], original.blocks || []),
   };
 }
 
@@ -1767,6 +1844,22 @@ app.get("/api/pdf-text/:jobId/:variant/:page", async (req, res) => {
 });
 
 // ── Download PDF (auto-detect in build/ or root) ──
+app.get("/api/pdf-block-map/:jobId/:page", async (req, res) => {
+  try {
+    const jobDir = path.join(JOBS_DIR, req.params.jobId);
+    if (!existsSync(jobDir)) return res.status(404).json({ error: "job not found" });
+    const page = Math.max(1, Math.min(9999, Number(req.params.page || 1)));
+    const [{ pdfPath: originalPdfPath }, { pdfPath: translatedPdfPath }] = await Promise.all([
+      ensureComparePdf(jobDir, "original", ""),
+      ensureComparePdf(jobDir, "translated", ""),
+    ]);
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.json(await pdfBlockMap(originalPdfPath, translatedPdfPath, page));
+  } catch (error) {
+    res.status(500).json({ error: error.message || "block map failed" });
+  }
+});
+
 app.get("/api/download-pdf/:jobId", (req, res) => {
   const jobDir = path.join(JOBS_DIR, req.params.jobId);
   if (!existsSync(jobDir)) return res.status(404).send("No PDF found");
