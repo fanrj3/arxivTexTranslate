@@ -142,13 +142,19 @@ type PdfTextLine = {
   cy: number;
 };
 
+type PdfTextBlock = PdfTextLine & {
+  index: number;
+  column?: string;
+};
+
 type PdfTextPage = {
   width: number;
   height: number;
   lines: PdfTextLine[];
+  blocks?: PdfTextBlock[];
 };
 
-type HoverTarget = { page: number; cy: number } | null;
+type HoverTarget = { page: number; blockIndex: number } | null;
 
 type FileTranslationStatus = {
   path: string;
@@ -1485,18 +1491,9 @@ function PdfCompareSkeleton() {
   );
 }
 
-function nearestTextLine(lines: PdfTextLine[] | undefined, target: HoverTarget) {
-  if (!target || !lines?.length) return null;
-  let best: PdfTextLine | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const line of lines) {
-    const distance = Math.abs(line.cy - target.cy);
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = line;
-    }
-  }
-  return bestDistance < 0.035 ? best : null;
+function matchedTextBlock(blocks: PdfTextBlock[] | undefined, target: HoverTarget) {
+  if (!target || !blocks?.length) return null;
+  return blocks.find((block) => block.index === target.blockIndex) || blocks[Math.min(target.blockIndex, blocks.length - 1)] || null;
 }
 
 function PdfPageView({
@@ -1531,7 +1528,8 @@ function PdfPageView({
     };
   }, [jobId, side, page]);
 
-  const highlighted = hoverTarget?.page === page ? nearestTextLine(textPage?.lines, hoverTarget) : null;
+  const textBlocks = textPage?.blocks?.length ? textPage.blocks : textPage?.lines.map((line, index) => ({ ...line, index }));
+  const highlighted = hoverTarget?.page === page ? matchedTextBlock(textBlocks, hoverTarget) : null;
   const aspectRatio = textPage?.width && textPage?.height ? `${textPage.width} / ${textPage.height}` : "0.72";
 
   return (
@@ -1547,25 +1545,25 @@ function PdfPageView({
           src={`/api/pdf-page/${encodeURIComponent(jobId)}/${side}/${page}.png`}
           onLoad={() => setLoaded(true)}
         />
-        {textPage?.lines.map((line) => {
-          const active = highlighted?.id === line.id;
+        {textBlocks?.map((block) => {
+          const active = highlighted?.id === block.id;
           return (
             <button
-              key={line.id}
+              key={block.id}
               type="button"
-              title={line.text}
-              aria-label={line.text}
+              title={block.text}
+              aria-label={block.text}
               className={cn(
                 "absolute rounded-sm border-0 bg-transparent p-0 transition-colors",
-                active ? "bg-primary/20 ring-1 ring-primary/50" : "hover:bg-primary/10",
+                active ? "bg-primary/20 ring-2 ring-primary/40" : "hover:bg-primary/10",
               )}
               style={{
-                left: `${Math.max(0, line.x * 100)}%`,
-                top: `${Math.max(0, line.y * 100)}%`,
-                width: `${Math.min(100, Math.max(1, line.w * 100))}%`,
-                height: `${Math.min(100, Math.max(0.8, line.h * 100))}%`,
+                left: `${Math.max(0, block.x * 100)}%`,
+                top: `${Math.max(0, block.y * 100)}%`,
+                width: `${Math.min(100, Math.max(1, block.w * 100))}%`,
+                height: `${Math.min(100, Math.max(1.2, block.h * 100))}%`,
               }}
-              onMouseEnter={() => setHoverTarget({ page, cy: line.cy })}
+              onMouseEnter={() => setHoverTarget({ page, blockIndex: block.index })}
               onMouseLeave={() => setHoverTarget(null)}
             />
           );

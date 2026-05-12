@@ -943,6 +943,65 @@ async function pdfPageCount(pdfPath) {
   return match ? Number(match[1]) : 0;
 }
 
+function textColumn(line) {
+  if (line.w > 0.52 || (line.x < 0.22 && line.x + line.w > 0.78)) return "full";
+  return line.x < 0.5 ? "left" : "right";
+}
+
+function groupPdfTextBlocks(lines, pageNumber) {
+  const orderedLines = [...lines].sort((a, b) => {
+    const columnOrder = { full: 0, left: 1, right: 2 };
+    const ac = textColumn(a);
+    const bc = textColumn(b);
+    const aTopBand = ac === "full" && a.y < 0.34;
+    const bTopBand = bc === "full" && b.y < 0.34;
+    if (aTopBand !== bTopBand) return aTopBand ? -1 : 1;
+    if (ac !== bc) return (columnOrder[ac] || 9) - (columnOrder[bc] || 9);
+    return a.y - b.y || a.x - b.x;
+  });
+
+  const blocks = [];
+  for (const line of orderedLines) {
+    const col = textColumn(line);
+    const last = blocks[blocks.length - 1];
+    const verticalGap = last ? line.y - (last.y + last.h) : Number.POSITIVE_INFINITY;
+    const similarColumn = last?.column === col;
+    const similarIndent = last ? Math.abs(line.x - last.x) < 0.08 || line.x <= last.x + last.w * 0.18 : false;
+    const closeLine = verticalGap > -0.012 && verticalGap < Math.max(0.022, line.h * 1.7);
+    const shouldMerge = last && similarColumn && closeLine && similarIndent;
+
+    if (!shouldMerge) {
+      blocks.push({
+        id: `${pageNumber}-b${blocks.length}`,
+        index: blocks.length,
+        column: col,
+        text: line.text,
+        x: line.x,
+        y: line.y,
+        w: line.w,
+        h: line.h,
+        cy: line.cy,
+      });
+      continue;
+    }
+
+    const right = Math.max(last.x + last.w, line.x + line.w);
+    const bottom = Math.max(last.y + last.h, line.y + line.h);
+    last.x = Math.min(last.x, line.x);
+    last.y = Math.min(last.y, line.y);
+    last.w = Math.max(0.01, right - last.x);
+    last.h = Math.max(0.006, bottom - last.y);
+    last.cy = last.y + last.h / 2;
+    last.text = `${last.text} ${line.text}`.replace(/\s+/g, " ").trim();
+  }
+
+  return blocks.filter(block => block.text.trim().length > 2).map((block, index) => ({
+    ...block,
+    id: `${pageNumber}-b${index}`,
+    index,
+  }));
+}
+
 async function pdfTextLines(pdfPath, pageNumber) {
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const data = new Uint8Array(readFileSync(pdfPath));
@@ -979,20 +1038,22 @@ async function pdfTextLines(pdfPath, pageNumber) {
       line.text = `${line.text} ${item.text}`;
     }
   }
+  const normalizedLines = lines
+    .filter(line => line.text.trim().length > 1)
+    .map((line, index) => ({
+      id: `${pageNumber}-${index}`,
+      text: line.text.replace(/\s+/g, " ").trim(),
+      x: line.left / viewport.width,
+      y: line.top / viewport.height,
+      w: Math.max(0.01, (line.right - line.left) / viewport.width),
+      h: Math.max(0.006, (line.bottom - line.top) / viewport.height),
+      cy: ((line.top + line.bottom) / 2) / viewport.height,
+    }));
   return {
     width: viewport.width,
     height: viewport.height,
-    lines: lines
-      .filter(line => line.text.trim().length > 1)
-      .map((line, index) => ({
-        id: `${pageNumber}-${index}`,
-        text: line.text.replace(/\s+/g, " ").trim(),
-        x: line.left / viewport.width,
-        y: line.top / viewport.height,
-        w: Math.max(0.01, (line.right - line.left) / viewport.width),
-        h: Math.max(0.006, (line.bottom - line.top) / viewport.height),
-        cy: ((line.top + line.bottom) / 2) / viewport.height,
-      })),
+    lines: normalizedLines,
+    blocks: groupPdfTextBlocks(normalizedLines, pageNumber),
   };
 }
 
