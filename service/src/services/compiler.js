@@ -142,12 +142,42 @@ const XELATEX_SHIM = `\n${XELATEX_SHIM_MARKER}
 `;
 
 const CJK_SHIM_MARKER = "% Chinese font support (auto-injected)";
+const CJK_SHIM_END_MARKER = "% End Chinese font support (auto-injected)";
+const CJK_NAMES_MARKER = "% Chinese reference names (auto-injected)";
+const CJK_NAMES_END_MARKER = "% End Chinese reference names (auto-injected)";
+const CJK_NAMES_SHIM = `${CJK_NAMES_MARKER}
+\\makeatletter
+\\renewcommand{\\figurename}{图}%
+\\renewcommand{\\tablename}{表}%
+\\@ifpackageloaded{cleveref}{%
+  \\crefname{figure}{图}{图}%
+  \\Crefname{figure}{图}{图}%
+  \\crefformat{figure}{图~#2#1#3}%
+  \\Crefformat{figure}{图~#2#1#3}%
+  \\crefname{table}{表}{表}%
+  \\Crefname{table}{表}{表}%
+  \\crefformat{table}{表~#2#1#3}%
+  \\Crefformat{table}{表~#2#1#3}%
+  \\crefname{section}{节}{节}%
+  \\Crefname{section}{节}{节}%
+  \\crefformat{section}{节~#2#1#3}%
+  \\Crefformat{section}{节~#2#1#3}%
+  \\crefname{algorithm}{算法}{算法}%
+  \\Crefname{algorithm}{算法}{算法}%
+  \\crefformat{algorithm}{算法~#2#1#3}%
+  \\Crefformat{algorithm}{算法~#2#1#3}%
+}{}%
+\\makeatother
+${CJK_NAMES_END_MARKER}
+`;
 const CJK_SHIM = `\n${CJK_SHIM_MARKER}
 \\usepackage[fontset=windows]{ctex}
 \\xeCJKsetup{AutoFakeBold=2}
 \\setCJKmainfont{Noto Serif SC}[BoldFont={Noto Serif SC}, BoldFeatures={FakeBold=2}, ItalicFont=KaiTi]
 \\setCJKsansfont{Noto Sans SC}[BoldFont={Noto Sans SC}, BoldFeatures={FakeBold=2}]
 \\setCJKmonofont{FangSong}
+${CJK_NAMES_SHIM}
+${CJK_SHIM_END_MARKER}
 `;
 
 function stripOldShim(texContent) {
@@ -158,7 +188,21 @@ function stripOldShim(texContent) {
 }
 
 function stripCjkShim(texContent) {
-  return texContent.replace(/\n?% Chinese font support \(auto-injected\)\n\\usepackage(?:\[[^\]]*\])?\{ctex\}\n\\xeCJKsetup\{AutoFakeBold=2\}\n\\setCJKmainfont\{Noto Serif SC\}\[BoldFont=\{Noto Serif SC\}, BoldFeatures=\{FakeBold=2\}, ItalicFont=KaiTi\]\n\\setCJKsansfont\{Noto Sans SC\}\[BoldFont=\{Noto Sans SC\}, BoldFeatures=\{FakeBold=2\}\]\n\\setCJKmonofont\{FangSong\}\n?/g, "\n");
+  return texContent
+    .replace(/\n?% Chinese font support \(auto-injected\)[\s\S]*?% End Chinese font support \(auto-injected\)\n?/g, "\n")
+    .replace(/\n?% Chinese reference names \(auto-injected\)[\s\S]*?% End Chinese reference names \(auto-injected\)\n?/g, "\n")
+    .replace(/\n?% Chinese font support \(auto-injected\)\n\\usepackage(?:\[[^\]]*\])?\{ctex\}\n\\xeCJKsetup\{AutoFakeBold=2\}\n\\setCJKmainfont\{Noto Serif SC\}\[BoldFont=\{Noto Serif SC\}, BoldFeatures=\{FakeBold=2\}, ItalicFont=KaiTi\]\n\\setCJKsansfont\{Noto Sans SC\}\[BoldFont=\{Noto Sans SC\}, BoldFeatures=\{FakeBold=2\}\]\n\\setCJKmonofont\{FangSong\}\n?/g, "\n");
+}
+
+function injectChineseReferenceNames(texContent) {
+  const cleaned = texContent.replace(/\n?% Chinese reference names \(auto-injected\)[\s\S]*?% End Chinese reference names \(auto-injected\)\n?/g, "\n");
+  if (!hasCjkText(cleaned)) return cleaned;
+  const begin = cleaned.match(/\\begin\{document\}/);
+  if (begin?.index !== undefined) {
+    const insertAt = begin.index + begin[0].length;
+    return cleaned.slice(0, insertAt) + `\n${CJK_NAMES_SHIM}\n` + cleaned.slice(insertAt);
+  }
+  return `${CJK_NAMES_SHIM}\n${cleaned}`;
 }
 
 function injectXelatexShim(texContent) {
@@ -182,6 +226,19 @@ function normalizeTranslatedLatex(content) {
     .replace(/(^|[^\\A-Za-z])(citep?|citet|ref|label|autoref|eqref)\{/g, "$1\\$2{")
     .replace(/(\\(?:sub)*section\*?\{[^{}\n]*?)\s*(\\label\{[^}]+\})/g, "$1}$2")
     .replace(/(\\paragraph\{[^{}\n]*?)\s*(\\label\{[^}]+\})/g, "$1}$2");
+  normalized = normalized.replace(/\\[cC]ref\{([^}]+)\}/g, (_match, keys) => {
+    const labels = String(keys).split(",").map((item) => item.trim()).filter(Boolean);
+    if (!labels.length) return `\\ref{${keys}}`;
+    const converted = labels.map((label) => {
+      if (/^(fig|figure)[:_-]/i.test(label)) return `图~\\ref{${label}}`;
+      if (/^(tab|table)[:_-]/i.test(label)) return `表~\\ref{${label}}`;
+      if (/^(alg|algorithm)[:_-]/i.test(label)) return `算法~\\ref{${label}}`;
+      if (/^(sec|section)[:_-]/i.test(label)) return `第~\\ref{${label}}节`;
+      if (/^(eq|equation)[:_-]/i.test(label)) return `式~\\eqref{${label}}`;
+      return `\\ref{${label}}`;
+    });
+    return converted.join("、");
+  });
   return normalized;
 }
 
@@ -202,8 +259,12 @@ function injectChineseSupport(texContent) {
     return withoutStaleShim;
   }
 
-  if (!hasCjkText(withoutStaleShim) || /\\usepackage(?:\[[^\]]*\])?\{ctex\}|\\xeCJKsetup|\\setCJKmainfont/.test(withoutStaleShim)) {
+  if (!hasCjkText(withoutStaleShim)) {
     return withoutStaleShim;
+  }
+
+  if (/\\usepackage(?:\[[^\]]*\])?\{ctex\}|\\xeCJKsetup|\\setCJKmainfont/.test(withoutStaleShim)) {
+    return injectChineseReferenceNames(withoutStaleShim);
   }
 
   const cleaned = removePdfLatexEncodingPackages(withoutStaleShim);
@@ -212,12 +273,12 @@ function injectChineseSupport(texContent) {
     const shimEnd = cleaned.indexOf("\\makeatother", shimIndex);
     if (shimEnd !== -1) {
       const insertAt = shimEnd + "\\makeatother".length;
-      return cleaned.slice(0, insertAt) + CJK_SHIM + cleaned.slice(insertAt);
+      return injectChineseReferenceNames(cleaned.slice(0, insertAt) + CJK_SHIM + cleaned.slice(insertAt));
     }
   }
 
   const insertAt = docclass.index + docclass[0].length;
-  return cleaned.slice(0, insertAt) + CJK_SHIM + cleaned.slice(insertAt);
+  return injectChineseReferenceNames(cleaned.slice(0, insertAt) + CJK_SHIM + cleaned.slice(insertAt));
 }
 
 function normalizeTranslatedSources(dir) {
@@ -345,6 +406,7 @@ export async function compilePaper(paperDir, texFile, onProgress, options = {}) 
     ? xelatexPath.split("MiKTeX")[0] + "MiKTeX" : "";
 
   const results = [];
+  const compileStartMs = Date.now();
 
   // 1. xelatex. Missing packages can surface one at a time, so retry a few
   // rounds after MiKTeX installs anything reported by the latest log.
@@ -407,14 +469,15 @@ export async function compilePaper(paperDir, texFile, onProgress, options = {}) 
   const logText = existsSync(path.join(buildDir, stem + ".log"))
     ? readFileSync(path.join(buildDir, stem + ".log"), "utf-8") : "";
   const pdfExists = existsSync(pdfPath);
+  const pdfFresh = pdfExists && statSync(pdfPath).mtimeMs >= compileStartMs - 2000;
   const logAnalysis = analyzeLatexLog(logText);
   const hasLatexErrors = logAnalysis.hardErrorCount > 0;
   return {
-    success: pdfExists,
+    success: pdfFresh,
     hasLatexErrors,
-    pdfPath: pdfExists ? pdfPath : null,
+    pdfPath: pdfFresh ? pdfPath : null,
     xelatexPath,
-    log: logText.slice(-3000),
+    log: (pdfExists && !pdfFresh ? "PDF output was not refreshed during this compile. Check xelatex path and compile errors.\n\n" : "") + logText.slice(-3000),
     logAnalysis,
     results,
   };

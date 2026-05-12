@@ -343,6 +343,7 @@ function HomePage({
   const [arxivInput, setArxivInput] = useState("");
   const [isFetching, setIsFetching] = useState(false);
   const [isSearchingArxiv, setIsSearchingArxiv] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [arxivResults, setArxivResults] = useState<ArxivSearchResult[]>([]);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -377,6 +378,7 @@ function HomePage({
     const query = value.trim();
     if (!query) return;
     setIsFetching(true);
+    const toastId = toast.loading(`正在拉取 ${query} 的 arXiv 源码...`);
     try {
       const data = await fetchJson<{ jobId: string }>("/api/fetch-arxiv", {
         method: "POST",
@@ -385,11 +387,11 @@ function HomePage({
       });
       setArxivInput("");
       setArxivResults([]);
-      notify("源码已拉取");
+      toast.success("源码已拉取，正在打开任务", { id: toastId });
       await refreshJobs();
       openDetail(data.jobId);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "拉取失败");
+      toast.error(error instanceof Error ? error.message : "拉取失败", { id: toastId });
     } finally {
       setIsFetching(false);
     }
@@ -403,6 +405,7 @@ function HomePage({
       return;
     }
     setIsSearchingArxiv(true);
+    const toastId = toast.loading("正在搜索 arXiv...");
     try {
       const params = new URLSearchParams({
         q: query,
@@ -411,9 +414,13 @@ function HomePage({
       });
       const data = await fetchJson<{ results: ArxivSearchResult[] }>(`/api/search-arxiv?${params.toString()}`);
       setArxivResults(data.results || []);
-      if (!data.results?.length) notify("没有找到匹配的 arXiv 论文");
+      if (data.results?.length) {
+        toast.success(`找到 ${data.results.length} 篇候选论文`, { id: toastId });
+      } else {
+        toast.info("没有找到匹配的 arXiv 论文", { id: toastId });
+      }
     } catch (error) {
-      notify(error instanceof Error ? error.message : "arXiv 搜索失败");
+      toast.error(error instanceof Error ? error.message : "arXiv 搜索失败", { id: toastId });
     } finally {
       setIsSearchingArxiv(false);
     }
@@ -423,16 +430,19 @@ function HomePage({
     if (!file) return;
     const form = new FormData();
     form.append("file", file);
+    setIsUploading(true);
+    const toastId = toast.loading(`正在导入 ${file.name}...`);
     try {
       const response = await fetch("/api/upload", { method: "POST", body: form });
       const data = await response.json();
       if (!response.ok || data.error) throw new Error(data.error || "上传失败");
-      notify("源码包已上传");
+      toast.success("源码包已导入，正在打开任务", { id: toastId });
       await refreshJobs();
       openDetail(data.jobId);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "上传失败");
+      toast.error(error instanceof Error ? error.message : "上传失败", { id: toastId });
     } finally {
+      setIsUploading(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -529,7 +539,7 @@ function HomePage({
                         placeholder="arXiv ID、URL 或关键词"
                         spellCheck={false}
                       />
-                      <Button size="icon" disabled={isFetching || isSearchingArxiv} onClick={searchArxiv} aria-label="搜索或拉取源码">
+                      <Button size="icon" disabled={isFetching || isSearchingArxiv || isUploading} onClick={searchArxiv} aria-label="搜索或拉取源码">
                         {isFetching || isSearchingArxiv ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                       </Button>
                     </div>
@@ -581,9 +591,9 @@ function HomePage({
                       uploadFile(event.dataTransfer.files[0]);
                     }}
                   >
-                    <FileArchive className="h-5 w-5 text-primary" />
-                    <strong className="text-sm">选择或拖入 .tar.gz</strong>
-                    <span className="max-w-64 text-xs leading-6 text-muted-foreground">自动解包、识别主 tex 文件，并保存为一个本地任务。</span>
+                    {isUploading ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <FileArchive className="h-5 w-5 text-primary" />}
+                    <strong className="text-sm">{isUploading ? "正在导入源码包" : "选择或拖入 .tar.gz"}</strong>
+                    <span className="max-w-64 text-xs leading-6 text-muted-foreground">{isUploading ? "正在解包并识别主 tex 文件..." : "自动解包、识别主 tex 文件，并保存为一个本地任务。"}</span>
                     <input ref={fileRef} type="file" accept=".tar.gz,.gz" hidden onChange={(event: ChangeEvent<HTMLInputElement>) => uploadFile(event.target.files?.[0])} />
                   </button>
                 </CardContent>
@@ -719,6 +729,9 @@ function JobDetail({
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [threadProgress, setThreadProgress] = useState<ThreadStatus[]>([]);
   const [selectedFile, setSelectedFile] = useState<FileTranslationStatus | null>(null);
+  const [isStartingTranslate, setIsStartingTranslate] = useState(false);
+  const [isCompiling, setIsCompiling] = useState(false);
+  const [isPackagingFeedback, setIsPackagingFeedback] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const logEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -763,6 +776,7 @@ function JobDetail({
           if (data.result?.translationUsage) setMeta((current) => ({ ...(current || {}), translationUsage: data.result.translationUsage }));
           appendLog("翻译完成，可以继续编译 PDF。", "phase");
           setTaskStatus({ text: "翻译完成", status: "translated" });
+          toast.success("翻译完成，可以继续编译 PDF");
           source.close();
           eventSourceRef.current = null;
           refreshJobs();
@@ -770,12 +784,14 @@ function JobDetail({
           if (data.result?.translationUsage) setMeta((current) => ({ ...(current || {}), translationUsage: data.result.translationUsage }));
           appendLog("Translation partially completed. Check failed files below.", "error");
           setTaskStatus({ text: "部分文件翻译失败", status: "empty" });
+          toast.error("部分文件翻译失败，请展开 Tex 状态查看详情");
           source.close();
           eventSourceRef.current = null;
           refreshJobs();
         } else if (data.status === "error") {
           appendLog(data.result?.error || "翻译失败", "error");
           setTaskStatus({ text: "翻译失败", status: "empty" });
+          toast.error(data.result?.error || "翻译失败");
           source.close();
           eventSourceRef.current = null;
           refreshJobs();
@@ -811,21 +827,24 @@ function JobDetail({
   };
 
   const runTranslate = async () => {
-    const existing = await fetchJson<{ taskId?: string } | null>(`/api/jobs/${jobId}/running-task`);
-    if (existing?.taskId) {
-      connectTask(existing.taskId);
-      return;
-    }
-
-    setLogs([]);
-    setStreamPreview("");
-    setStreamStats(null);
-    setFileProgress([]);
-    setActiveFile(null);
-    setThreadProgress([]);
-    setSelectedFile(null);
-    appendLog("开始翻译源文件...", "phase");
+    setIsStartingTranslate(true);
+    const toastId = toast.loading("正在启动翻译任务...");
     try {
+      const existing = await fetchJson<{ taskId?: string } | null>(`/api/jobs/${jobId}/running-task`);
+      if (existing?.taskId) {
+        connectTask(existing.taskId);
+        toast.info("已有翻译任务正在运行，已连接进度", { id: toastId });
+        return;
+      }
+
+      setLogs([]);
+      setStreamPreview("");
+      setStreamStats(null);
+      setFileProgress([]);
+      setActiveFile(null);
+      setThreadProgress([]);
+      setSelectedFile(null);
+      appendLog("开始翻译源文件...", "phase");
       const data = await fetchJson<{ taskId: string }>("/api/translate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -834,90 +853,113 @@ function JobDetail({
         }),
       });
       connectTask(data.taskId);
+      toast.success("翻译任务已启动", { id: toastId });
     } catch (error) {
       appendLog(error instanceof Error ? error.message : "翻译失败", "error");
+      toast.error(error instanceof Error ? error.message : "翻译失败", { id: toastId });
+    } finally {
+      setIsStartingTranslate(false);
     }
   };
 
   const runCompile = async () => {
+    setIsCompiling(true);
+    const toastId = toast.loading("正在编译 PDF...");
     setLogs([]);
     setResult(null);
     appendLog("开始编译 PDF...", "phase");
 
-    const response = await fetch("/api/compile", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jobId,
-        xelatexPath: localStorage.getItem("xelatexPath") || "",
-      }),
-    });
+    try {
+      const response = await fetch("/api/compile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId,
+          xelatexPath: localStorage.getItem("xelatexPath") || "",
+        }),
+      });
 
-    const contentType = response.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const data = await response.json();
-      appendLog(data.error || "编译失败", "error");
-      return;
-    }
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        appendLog(data.error || "编译失败", "error");
+        toast.error(data.error || "编译失败", { id: toastId });
+        return;
+      }
 
-    const reader = response.body?.getReader();
-    if (!reader) return;
-    const decoder = new TextDecoder();
-    let buffer = "";
+      const reader = response.body?.getReader();
+      if (!reader) {
+        toast.error("编译失败：没有收到服务端输出", { id: toastId });
+        return;
+      }
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split("\n\n");
-      buffer = chunks.pop() || "";
-      for (const chunk of chunks) {
-        const line = chunk.split("\n").find((item) => item.startsWith("data: "));
-        if (!line) continue;
-        const data = JSON.parse(line.slice(6));
-        if (data.type === "start") {
-          appendLog(`使用 xelatex: ${data.xelatexPath || "xelatex"}`, "phase");
-          if (data.mainTex) appendLog(`主文件: ${data.mainTex}`, "phase");
-        } else if (data.type === "step") {
-          if (data.step === "bibliography from source .bbl") {
-            appendLog("参考文献: 使用 arXiv 原始 .bbl 文件。", "phase");
-          } else if (data.step === "bibliography fallback") {
-            appendLog("参考文献: BibTeX 失败，已回退到原始 .bbl 文件。", "phase");
-          } else if (data.step === "bibtex" && data.exitCode !== 0) {
-            appendLog("继续: BibTeX 未完成，后续会尝试参考文献回退。", "phase");
-          } else if (typeof data.step === "string" && data.step.startsWith("xelatex") && data.exitCode !== 0) {
-            appendLog(`继续: ${data.step} 返回非零，正在检查 PDF 输出。`, "phase");
-          } else {
-            appendLog(`${data.exitCode === 0 ? "成功" : "失败"}: ${data.step}`, data.exitCode === 0 ? undefined : "error");
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+        for (const chunk of chunks) {
+          const line = chunk.split("\n").find((item) => item.startsWith("data: "));
+          if (!line) continue;
+          const data = JSON.parse(line.slice(6));
+          if (data.type === "start") {
+            appendLog(`使用 xelatex: ${data.xelatexPath || "xelatex"}`, "phase");
+            if (data.mainTex) appendLog(`主文件: ${data.mainTex}`, "phase");
+          } else if (data.type === "step") {
+            if (data.step === "bibliography from source .bbl") {
+              appendLog("参考文献: 使用 arXiv 原始 .bbl 文件。", "phase");
+            } else if (data.step === "bibliography fallback") {
+              appendLog("参考文献: BibTeX 失败，已回退到原始 .bbl 文件。", "phase");
+            } else if (data.step === "bibtex" && data.exitCode !== 0) {
+              appendLog("继续: BibTeX 未完成，后续会尝试参考文献回退。", "phase");
+            } else if (typeof data.step === "string" && data.step.startsWith("xelatex") && data.exitCode !== 0) {
+              appendLog(`继续: ${data.step} 返回非零，正在检查 PDF 输出。`, "phase");
+            } else {
+              appendLog(`${data.exitCode === 0 ? "成功" : "失败"}: ${data.step}`, data.exitCode === 0 ? undefined : "error");
+            }
+          } else if (data.type === "done") {
+            if (data.success) {
+              appendLog(data.hasLatexErrors ? "PDF 已生成，但日志中仍有 LaTeX 可恢复错误/警告。" : "编译完成。", "phase");
+              setResult("pdf");
+              toast.success(data.hasLatexErrors ? "PDF 已生成（有警告）" : "PDF 编译完成", { id: toastId });
+            } else {
+              appendLog("编译失败，下面是日志末尾。", "error");
+              setResult(data.log || "");
+              toast.error("编译失败，请查看原始日志", { id: toastId });
+            }
+          } else if (data.type === "error") {
+            appendLog(data.message, "error");
+            toast.error(data.message || "编译失败", { id: toastId });
           }
-        } else if (data.type === "done") {
-          if (data.success) {
-            appendLog(data.hasLatexErrors ? "PDF 已生成，但日志中仍有 LaTeX 可恢复错误/警告。" : "编译完成。", "phase");
-            setResult("pdf");
-            notify(data.hasLatexErrors ? "PDF 已生成（有警告）" : "PDF 编译完成");
-          } else {
-            appendLog("编译失败，下面是日志末尾。", "error");
-            setResult(data.log || "");
-          }
-        } else if (data.type === "error") {
-          appendLog(data.message, "error");
         }
       }
+      await refreshJobs();
+    } catch (error) {
+      appendLog(error instanceof Error ? error.message : "编译失败", "error");
+      toast.error(error instanceof Error ? error.message : "编译失败", { id: toastId });
+    } finally {
+      setIsCompiling(false);
     }
-    await refreshJobs();
   };
 
   const runFeedback = async () => {
+    setIsPackagingFeedback(true);
+    const toastId = toast.loading("正在打包反馈文件...");
     try {
       const data = await fetchJson<{ title: string; issueUrl: string; floatingUrl: string; zipName: string }>(`/api/jobs/${jobId}/feedback`, {
         method: "POST",
       });
       await navigator.clipboard?.writeText(data.title).catch(() => undefined);
-      window.open(data.floatingUrl, "_blank", "width=360,height=220");
+      window.open(data.floatingUrl, "_blank", "width=390,height=280");
       window.open(data.issueUrl, "_blank", "noopener,noreferrer");
-      notify(`已生成 ${data.zipName || "log.zip"}，Issue 标题已复制到剪贴板`);
+      toast.success(`已生成 ${data.zipName || "log.zip"}，Issue 标题已复制`, { id: toastId });
     } catch (error) {
-      notify(error instanceof Error ? error.message : "生成反馈包失败");
+      toast.error(error instanceof Error ? error.message : "生成反馈包失败", { id: toastId });
+    } finally {
+      setIsPackagingFeedback(false);
     }
   };
 
@@ -1113,21 +1155,21 @@ function JobDetail({
         )}
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={runTranslate}>
-            <Wand2 className="h-4 w-4" />
-            翻译中文
+          <Button onClick={runTranslate} disabled={isStartingTranslate}>
+            {isStartingTranslate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+            {isStartingTranslate ? "启动中" : "翻译中文"}
           </Button>
-          <Button onClick={runCompile}>
-            <Play className="h-4 w-4" />
-            编译 PDF
+          <Button onClick={runCompile} disabled={isCompiling}>
+            {isCompiling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+            {isCompiling ? "编译中" : "编译 PDF"}
           </Button>
           <Button variant="secondary" onClick={() => fetch(`/api/open/${jobId}`)}>
             <FolderOpen className="h-4 w-4" />
             打开目录
           </Button>
-          <Button variant="secondary" onClick={runFeedback}>
-            <Bug className="h-4 w-4" />
-            一键反馈
+          <Button variant="secondary" onClick={runFeedback} disabled={isPackagingFeedback}>
+            {isPackagingFeedback ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bug className="h-4 w-4" />}
+            {isPackagingFeedback ? "打包中" : "一键反馈"}
           </Button>
           <Button variant="secondary" onClick={() => fetch("/api/open-feedback-folder")}>
             <FolderOpen className="h-4 w-4" />

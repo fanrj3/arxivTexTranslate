@@ -76,6 +76,27 @@
       .zip:active {
         cursor: grabbing;
       }
+      .actions {
+        display: flex;
+        gap: 8px;
+      }
+      .action {
+        flex: 1;
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        border-radius: 10px;
+        background: white;
+        color: #0f172a;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 8px 10px;
+        text-align: center;
+        text-decoration: none;
+      }
+      .action:hover {
+        border-color: rgba(20, 184, 166, 0.45);
+        color: #0f8f7f;
+      }
       .icon {
         display: grid;
         place-items: center;
@@ -114,16 +135,20 @@
     <section class="panel">
       <header class="titlebar">
         <strong>Feedback package ready</strong>
-        <button class="close" type="button" title="Close" aria-label="Close">×</button>
+        <button class="close" type="button" title="Close" aria-label="Close">x</button>
       </header>
       <main>
-        <p class="hint">Drag the ZIP below into the GitHub Issue body. The issue title has already been copied.</p>
+        <p class="hint">Drag the ZIP below into the GitHub Issue body. If GitHub rejects this drag, open it in Explorer and drag the ZIP from there.</p>
         <div class="zip" draggable="true" id="zip-card">
           <div class="icon">ZIP</div>
           <div>
             <div class="name" id="zip-name">log.zip</div>
             <div class="meta" id="zip-meta">Loading file info...</div>
           </div>
+        </div>
+        <div class="actions">
+          <button class="action" type="button" id="show-file">Show in Explorer</button>
+          <a class="action" id="download-file" href="#" download>Download ZIP</a>
         </div>
         <div class="issue-title" id="issue-title"></div>
       </main>
@@ -137,6 +162,8 @@
       const nameEl = document.querySelector("#zip-name");
       const metaEl = document.querySelector("#zip-meta");
       const titleEl = document.querySelector("#issue-title");
+      const showButton = document.querySelector("#show-file");
+      const downloadLink = document.querySelector("#download-file");
       let info = null;
 
       closeButton.addEventListener("click", () => window.close());
@@ -159,12 +186,19 @@
         info = data;
         nameEl.textContent = data.fileName;
         metaEl.textContent = `${formatSize(data.size)} - drag to upload`;
+        downloadLink.href = data.downloadUrl || `/api/feedback/${encodeURIComponent(data.fileName)}`;
+        downloadLink.download = data.fileName;
       }
 
       card.addEventListener("dragstart", (event) => {
         if (!info) return;
-        event.dataTransfer.effectAllowed = "copy";
+        event.preventDefault();
         window.feedbackBridge?.startDrag(info.filePath);
+      });
+
+      showButton.addEventListener("click", () => {
+        if (!info) return;
+        window.feedbackBridge?.showItem(info.filePath);
       });
 
       loadInfo().catch((error) => {

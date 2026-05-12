@@ -1469,13 +1469,20 @@ app.get("/api/check-updates", async (_req, res) => {
 // ── Download PDF (auto-detect in build/ or root) ──
 app.get("/api/download-pdf/:jobId", (req, res) => {
   const jobDir = path.join(JOBS_DIR, req.params.jobId);
+  if (!existsSync(jobDir)) return res.status(404).send("No PDF found");
+  const meta = readMeta(jobDir);
+  const preferredStem = meta.cnTex ? path.basename(meta.cnTex, ".tex") : "";
   // Look in build/ first, then job root
   const candDirs = [path.join(jobDir, "build"), jobDir];
   for (const dir of candDirs) {
     if (!existsSync(dir)) continue;
-    const pdf = readdirSync(dir).find(f => f.endsWith(".pdf"));
+    const pdfs = readdirSync(dir).filter(f => f.endsWith(".pdf"));
+    const pdf = (preferredStem && pdfs.find(f => f === `${preferredStem}.pdf`))
+      || pdfs.find(f => f.endsWith("_cn.pdf"))
+      || pdfs[0];
     if (pdf) {
       res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control", "no-store, max-age=0");
       return createReadStream(path.join(dir, pdf)).pipe(res);
     }
   }

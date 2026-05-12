@@ -178,3 +178,8 @@ ipcMain.on("feedback-start-drag", (event, filePath) => {
   if (!filePath || typeof filePath !== "string") return;
   event.sender.startDrag({ file: filePath, icon: DRAG_ICON });
 });
+
+ipcMain.on("feedback-show-item", (_event, filePath) => {
+  if (!filePath || typeof filePath !== "string") return;
+  shell.showItemInFolder(filePath);
+});

@@ -550,7 +550,9 @@ ${JSON.stringify({
   })),
 }, null, 2)}
 
-Return JSON only with one translated text per id.`;
+Return JSON only with one translated text per id.
+Preserve every LaTeX command, placeholder, math span, citation, label, and brace structure exactly.
+Translate caption, section, table heading, algorithm heading, and prose text fully into Chinese unless the phrase is a proper noun or model/dataset name.`;
 }
 
 function hasUntranslatedEnglish(unit, translatedText) {
@@ -582,10 +584,36 @@ function hasBalancedBraces(text) {
   return depth === 0;
 }
 
+function balanceLatexBraces(text) {
+  const value = String(text || "");
+  let depth = 0;
+  let fixed = "";
+  for (let i = 0; i < value.length; i++) {
+    const ch = value[i];
+    if (ch === "\\" && i + 1 < value.length) {
+      fixed += ch + value[i + 1];
+      i++;
+      continue;
+    }
+    if (ch === "{") depth++;
+    if (ch === "}") {
+      if (depth === 0) continue;
+      depth--;
+    }
+    fixed += ch;
+  }
+  if (depth > 0) fixed += "}".repeat(depth);
+  return fixed;
+}
+
 function sanitizeUnitTranslation(unit, translatedText) {
-  const text = String(translatedText || "");
+  let text = String(translatedText || "");
   if (!text.trim()) return { ok: false, reason: "empty translation" };
-  if (!hasBalancedBraces(text)) return { ok: false, reason: "unbalanced braces" };
+  if (!hasBalancedBraces(text)) {
+    const balanced = balanceLatexBraces(text);
+    if (!hasBalancedBraces(balanced)) return { ok: false, reason: "unbalanced braces" };
+    text = balanced;
+  }
   const expected = placeholderSet(unit.protectedText);
   const actual = placeholderSet(text);
   for (const token of expected) {
