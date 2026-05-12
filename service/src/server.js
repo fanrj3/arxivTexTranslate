@@ -31,7 +31,7 @@ const ARXIV_SEARCH_CACHE_MS = 30 * 60 * 1000;
 const TRANSLATION_PIPELINE_VERSION = "structured-block-v3";
 
 import multer from "multer";
-import { analyzeLatexProject, repairProtectedCommandArgs, stripLatexComments, validateTranslatedTex } from "./services/latex-structure.js";
+import { analyzeLatexProject, extractTranslationUnits, repairProtectedCommandArgs, stripLatexComments, validateTranslatedTex } from "./services/latex-structure.js";
 const upload = multer({ dest: path.join(JOBS_DIR, "_uploads") });
 const arxivSearchCache = new Map();
 let lastArxivSearchAt = 0;
@@ -1134,6 +1134,154 @@ async function pdfBlockMap(originalPdfPath, translatedPdfPath, page) {
   };
 }
 
+function synctexPathForPdf(pdfPath) {
+  const parsed = path.parse(pdfPath);
+  const gz = path.join(parsed.dir, `${parsed.name}.synctex.gz`);
+  const plain = path.join(parsed.dir, `${parsed.name}.synctex`);
+  if (existsSync(gz)) return gz;
+  if (existsSync(plain)) return plain;
+  return "";
+}
+
+function synctexBinary(preferredXelatexPath = "") {
+  const xelatexPath = String(preferredXelatexPath || "");
+  if (xelatexPath && /xelatex(?:\.exe)?$/i.test(xelatexPath)) {
+    return xelatexPath.replace(/xelatex(\.exe)?$/i, "synctex$1");
+  }
+  return process.platform === "win32" ? "synctex.exe" : "synctex";
+}
+
+function lineColumnAt(content, index) {
+  const safeIndex = Math.max(0, Math.min(String(content || "").length, index || 0));
+  const before = String(content || "").slice(0, safeIndex);
+  const lines = before.split(/\r?\n/);
+  return { line: lines.length, column: Math.max(1, lines[lines.length - 1].length + 1) };
+}
+
+function unitSamplePositions(content, unit) {
+  const text = String(content || "");
+  const starts = [unit.start, Math.round((unit.start + unit.end) / 2), Math.max(unit.start, unit.end - 1)];
+  const seen = new Set();
+  return starts.map((index) => lineColumnAt(text, index)).filter((pos) => {
+    const key = `${pos.line}:${pos.column}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function parseSynctexView(output = "", pdfInfo) {
+  const results = [];
+  const chunks = String(output || "").split(/(?=Page:\s*\d+)/g);
+  for (const chunk of chunks) {
+    const page = Number(/Page:\s*(\d+)/.exec(chunk)?.[1] || 0);
+    if (!page) continue;
+    const x = Number(/(?:^|\n)x:\s*([-\d.]+)/.exec(chunk)?.[1]);
+    const y = Number(/(?:^|\n)y:\s*([-\d.]+)/.exec(chunk)?.[1]);
+    const w = Number(/(?:^|\n)W:\s*([-\d.]+)/.exec(chunk)?.[1]);
+    const h = Number(/(?:^|\n)H:\s*([-\d.]+)/.exec(chunk)?.[1]);
+    if (![x, y, w, h].every(Number.isFinite)) continue;
+    results.push({
+      page,
+      x: Math.max(0, Math.min(1, x / pdfInfo.width)),
+      y: Math.max(0, Math.min(1, y / pdfInfo.height)),
+      w: Math.max(0.01, Math.min(1, w / pdfInfo.width)),
+      h: Math.max(0.008, Math.min(1, h / pdfInfo.height)),
+    });
+  }
+  return results;
+}
+
+function mergeRects(rects) {
+  const byPage = new Map();
+  for (const rect of rects) {
+    const list = byPage.get(rect.page) || [];
+    list.push(rect);
+    byPage.set(rect.page, list);
+  }
+  return [...byPage.entries()].map(([page, list]) => {
+    const left = Math.min(...list.map((rect) => rect.x));
+    const top = Math.min(...list.map((rect) => rect.y));
+    const right = Math.max(...list.map((rect) => rect.x + rect.w));
+    const bottom = Math.max(...list.map((rect) => rect.y + rect.h));
+    return { page, x: left, y: top, w: Math.max(0.01, right - left), h: Math.max(0.008, bottom - top) };
+  });
+}
+
+async function synctexUnitRects(jobDir, pdfPath, texRelPath, content, unit, pdfInfo, preferredXelatexPath = "") {
+  if (!synctexPathForPdf(pdfPath)) return [];
+  const texPath = path.join(jobDir, ...texRelPath.split("/"));
+  if (!existsSync(texPath)) return [];
+  const positions = unitSamplePositions(content, unit);
+  const rects = [];
+  for (const pos of positions) {
+    const input = `${pos.line}:${pos.column}:${texPath}`;
+    const result = await runProcess(synctexBinary(preferredXelatexPath), ["view", "-i", input, "-o", pdfPath], jobDir, 20000);
+    if (result.exitCode === 0) rects.push(...parseSynctexView(result.stdout, pdfInfo));
+  }
+  return mergeRects(rects);
+}
+
+function pairedTranslationUnits(jobDir) {
+  const pairs = [];
+  for (const relPath of sourceTexFiles(jobDir)) {
+    const targetPath = texTargetPath(relPath);
+    const sourcePath = path.join(jobDir, ...relPath.split("/"));
+    const translatedPath = path.join(jobDir, ...targetPath.split("/"));
+    if (!existsSync(sourcePath) || !existsSync(translatedPath)) continue;
+    const sourceContent = readFileSync(sourcePath, "utf-8");
+    const translatedContent = readFileSync(translatedPath, "utf-8");
+    const sourceUnits = extractTranslationUnits(sourceContent, relPath);
+    const translatedUnits = extractTranslationUnits(translatedContent, relPath);
+    const count = Math.min(sourceUnits.length, translatedUnits.length);
+    for (let i = 0; i < count; i++) {
+      pairs.push({
+        id: sourceUnits[i].id || `${relPath}:${i}`,
+        relPath,
+        targetPath,
+        sourceContent,
+        translatedContent,
+        sourceUnit: sourceUnits[i],
+        translatedUnit: translatedUnits[i],
+      });
+    }
+  }
+  return pairs;
+}
+
+async function pdfSyncMap(jobDir, originalPdfPath, translatedPdfPath, page, preferredXelatexPath = "") {
+  const [originalInfo, translatedInfo] = await Promise.all([
+    pdfTextLines(originalPdfPath, page),
+    pdfTextLines(translatedPdfPath, page),
+  ]);
+  const originalRects = [];
+  const translatedRects = [];
+  const pairs = pairedTranslationUnits(jobDir).slice(0, 1200);
+  await runLimited(pairs, 4, async (pair) => {
+    const [leftRects, rightRects] = await Promise.all([
+      synctexUnitRects(jobDir, originalPdfPath, pair.relPath, pair.sourceContent, pair.sourceUnit, originalInfo, preferredXelatexPath),
+      synctexUnitRects(jobDir, translatedPdfPath, pair.targetPath, pair.translatedContent, pair.translatedUnit, translatedInfo, preferredXelatexPath),
+    ]);
+    for (const rect of leftRects.filter((rect) => rect.page === page)) {
+      originalRects.push({ ...rect, id: `o-${pair.id}-${originalRects.length}`, unitId: pair.id });
+    }
+    for (const rect of rightRects.filter((rect) => rect.page === page)) {
+      translatedRects.push({ ...rect, id: `t-${pair.id}-${translatedRects.length}`, unitId: pair.id });
+    }
+  });
+  const originalToTranslated = {};
+  const translatedToOriginal = {};
+  for (const rect of originalRects) {
+    const targets = translatedRects.filter((item) => item.unitId === rect.unitId).map((item) => item.id);
+    if (targets.length) originalToTranslated[rect.id] = targets;
+  }
+  for (const rect of translatedRects) {
+    const targets = originalRects.filter((item) => item.unitId === rect.unitId).map((item) => item.id);
+    if (targets.length) translatedToOriginal[rect.id] = targets;
+  }
+  return { page, source: "synctex", originalRects, translatedRects, originalToTranslated, translatedToOriginal };
+}
+
 function findTranslatedTexFiles(dir, root = dir) {
   const files = [];
   for (const entry of readdirSync(dir)) {
@@ -1734,7 +1882,7 @@ async function ensureComparePdf(jobDir, variant, xelatexPath = "") {
     if (!mainTex) throw new Error("No translated tex file found");
     const stem = path.basename(mainTex, ".tex");
     const existing = findPdfForStem(jobDir, stem, true);
-    if (existing && existsSync(existing)) return { texFile: mainTex, pdfPath: existing };
+    if (existing && existsSync(existing) && synctexPathForPdf(existing)) return { texFile: mainTex, pdfPath: existing };
     const { compilePaper } = await getCompiler();
     const result = await compilePaper(jobDir, mainTex, null, { xelatexPath });
     if (!result.success || !result.pdfPath) throw new Error(result.log || "Failed to compile translated PDF");
@@ -1745,7 +1893,7 @@ async function ensureComparePdf(jobDir, variant, xelatexPath = "") {
   if (!mainTex) throw new Error("No source tex file found");
   const stem = path.basename(mainTex, ".tex");
   const existing = findPdfForStem(jobDir, stem, false);
-  if (existing && existsSync(existing)) return { texFile: mainTex, pdfPath: existing };
+  if (existing && existsSync(existing) && synctexPathForPdf(existing)) return { texFile: mainTex, pdfPath: existing };
   const { compilePaper } = await getCompiler();
   const result = await compilePaper(jobDir, mainTex, null, { xelatexPath });
   if (!result.success || !result.pdfPath) throw new Error(result.log || "Failed to compile original PDF");
@@ -1857,6 +2005,26 @@ app.get("/api/pdf-block-map/:jobId/:page", async (req, res) => {
     res.json(await pdfBlockMap(originalPdfPath, translatedPdfPath, page));
   } catch (error) {
     res.status(500).json({ error: error.message || "block map failed" });
+  }
+});
+
+app.get("/api/pdf-sync-map/:jobId/:page", async (req, res) => {
+  try {
+    const jobDir = path.join(JOBS_DIR, req.params.jobId);
+    if (!existsSync(jobDir)) return res.status(404).json({ error: "job not found" });
+    const page = Math.max(1, Math.min(9999, Number(req.params.page || 1)));
+    const xelatexPath = String(req.query.xelatexPath || "");
+    const [{ pdfPath: originalPdfPath }, { pdfPath: translatedPdfPath }] = await Promise.all([
+      ensureComparePdf(jobDir, "original", xelatexPath),
+      ensureComparePdf(jobDir, "translated", xelatexPath),
+    ]);
+    if (!synctexPathForPdf(originalPdfPath) || !synctexPathForPdf(translatedPdfPath)) {
+      return res.status(501).json({ error: "SyncTeX output is not available. Recompile the PDFs first." });
+    }
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.json(await pdfSyncMap(jobDir, originalPdfPath, translatedPdfPath, page, xelatexPath));
+  } catch (error) {
+    res.status(500).json({ error: error.message || "synctex map failed" });
   }
 });
 

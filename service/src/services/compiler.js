@@ -410,7 +410,8 @@ export async function compilePaper(paperDir, texFile, onProgress, options = {}) 
 
   // 1. xelatex. Missing packages can surface one at a time, so retry a few
   // rounds after MiKTeX installs anything reported by the latest log.
-  let r1 = await runCmd(xelatexPath, ["-interaction=nonstopmode", "-output-directory=build", "--enable-installer", texName], paperDir);
+  const xelatexArgs = ["-interaction=nonstopmode", "-synctex=1", "-output-directory=build", "--enable-installer", texName];
+  let r1 = await runCmd(xelatexPath, xelatexArgs, paperDir);
   for (let attempt = 0; r1.exitCode !== 0 && attempt < 3; attempt += 1) {
     const logPath = path.join(buildDir, stem + ".log");
     const installed = await installMissingPackages(logPath, miktexDir || path.dirname(xelatexPath), paperDir);
@@ -419,7 +420,7 @@ export async function compilePaper(paperDir, texFile, onProgress, options = {}) 
       results.push({ step: `install ${item.packageName}`, exitCode: 0, stdout: "", stderr: `${item.fileName} -> ${item.packageName}` });
       onProgress?.(`install ${item.packageName}`, 0, `${item.fileName} -> ${item.packageName}`);
     }
-    r1 = await runCmd(xelatexPath, ["-interaction=nonstopmode", "-output-directory=build", "--enable-installer", texName], paperDir);
+    r1 = await runCmd(xelatexPath, xelatexArgs, paperDir);
   }
 
   results.push({ step: "xelatex (1/3)", ...r1 });
@@ -457,11 +458,11 @@ export async function compilePaper(paperDir, texFile, onProgress, options = {}) 
   }
 
   // 3-4. xelatex
-  const r3 = await runCmd(xelatexPath, ["-interaction=nonstopmode", "-output-directory=build", "--enable-installer", texName], paperDir);
+  const r3 = await runCmd(xelatexPath, xelatexArgs, paperDir);
   results.push({ step: "xelatex (2/3)", ...r3 });
   onProgress?.("xelatex (2/3)", r3.exitCode, r3.stderr);
 
-  const r4 = await runCmd(xelatexPath, ["-interaction=nonstopmode", "-output-directory=build", "--enable-installer", texName], paperDir);
+  const r4 = await runCmd(xelatexPath, xelatexArgs, paperDir);
   results.push({ step: "xelatex (3/3)", ...r4 });
   onProgress?.("xelatex (3/3)", r4.exitCode, r4.stderr);
 

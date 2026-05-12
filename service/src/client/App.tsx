@@ -160,7 +160,31 @@ type PdfBlockMap = {
   translatedToOriginal: Record<string, number[]>;
 };
 
-type HoverTarget = { page: number; side: "original" | "translated"; blockIndex: number } | null;
+type PdfSyncRect = {
+  id: string;
+  unitId: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+type PdfSyncMap = {
+  page: number;
+  source: "synctex";
+  originalRects: PdfSyncRect[];
+  translatedRects: PdfSyncRect[];
+  originalToTranslated: Record<string, string[]>;
+  translatedToOriginal: Record<string, string[]>;
+};
+
+type HoverTarget = {
+  page: number;
+  side: "original" | "translated";
+  source: "synctex" | "block";
+  id?: string;
+  blockIndex?: number;
+} | null;
 
 type FileTranslationStatus = {
   path: string;
@@ -1498,10 +1522,17 @@ function PdfCompareSkeleton() {
 }
 
 function isMappedBlock(side: "original" | "translated", block: PdfTextBlock, target: HoverTarget, blockMap: PdfBlockMap | null) {
-  if (!target || target.page !== blockMap?.page) return false;
+  if (!target || target.source !== "block" || target.page !== blockMap?.page || target.blockIndex === undefined) return false;
   if (target.side === side) return block.index === target.blockIndex;
   const map = target.side === "original" ? blockMap.originalToTranslated : blockMap.translatedToOriginal;
   return (map[String(target.blockIndex)] || []).includes(block.index);
+}
+
+function isMappedSyncRect(side: "original" | "translated", rect: PdfSyncRect, target: HoverTarget, syncMap: PdfSyncMap | null) {
+  if (!target || target.source !== "synctex" || !target.id || target.page !== syncMap?.page) return false;
+  if (target.side === side) return rect.id === target.id;
+  const map = target.side === "original" ? syncMap.originalToTranslated : syncMap.translatedToOriginal;
+  return (map[target.id] || []).includes(rect.id);
 }
 
 function PdfPageView({
@@ -1522,12 +1553,14 @@ function PdfPageView({
   const [loaded, setLoaded] = useState(false);
   const [textPage, setTextPage] = useState<PdfTextPage | null>(null);
   const [blockMap, setBlockMap] = useState<PdfBlockMap | null>(null);
+  const [syncMap, setSyncMap] = useState<PdfSyncMap | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
     setTextPage(null);
     setBlockMap(null);
+    setSyncMap(null);
     fetchJson<PdfTextPage>(`/api/pdf-text/${encodeURIComponent(jobId)}/${side}/${page}`)
       .then((data) => {
         if (!cancelled) setTextPage(data);
@@ -1538,12 +1571,20 @@ function PdfPageView({
         if (!cancelled) setBlockMap(data);
       })
       .catch(() => undefined);
+    const syncParams = new URLSearchParams({ xelatexPath: localStorage.getItem("xelatexPath") || "" });
+    fetchJson<PdfSyncMap>(`/api/pdf-sync-map/${encodeURIComponent(jobId)}/${page}?${syncParams.toString()}`)
+      .then((data) => {
+        if (!cancelled) setSyncMap(data);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [jobId, side, page]);
 
   const textBlocks = textPage?.blocks?.length ? textPage.blocks : textPage?.lines.map((line, index) => ({ ...line, index }));
+  const syncRects = side === "original" ? syncMap?.originalRects : syncMap?.translatedRects;
+  const useSyncRects = Boolean(syncRects?.length);
   const aspectRatio = textPage?.width && textPage?.height ? `${textPage.width} / ${textPage.height}` : "0.72";
 
   return (
@@ -1559,7 +1600,29 @@ function PdfPageView({
           src={`/api/pdf-page/${encodeURIComponent(jobId)}/${side}/${page}.png`}
           onLoad={() => setLoaded(true)}
         />
-        {textBlocks?.map((block) => {
+        {useSyncRects && syncRects?.map((rect) => {
+          const active = isMappedSyncRect(side, rect, hoverTarget, syncMap);
+          return (
+            <button
+              key={rect.id}
+              type="button"
+              aria-label={rect.unitId}
+              className={cn(
+                "absolute rounded-sm border-0 bg-transparent p-0 transition-colors",
+                active ? "bg-primary/20 ring-2 ring-primary/40" : "hover:bg-primary/10",
+              )}
+              style={{
+                left: `${Math.max(0, rect.x * 100)}%`,
+                top: `${Math.max(0, rect.y * 100)}%`,
+                width: `${Math.min(100, Math.max(1, rect.w * 100))}%`,
+                height: `${Math.min(100, Math.max(1.2, rect.h * 100))}%`,
+              }}
+              onMouseEnter={() => setHoverTarget({ page, side, source: "synctex", id: rect.id })}
+              onMouseLeave={() => setHoverTarget(null)}
+            />
+          );
+        })}
+        {!useSyncRects && textBlocks?.map((block) => {
           const active = isMappedBlock(side, block, hoverTarget, blockMap);
           return (
             <button
@@ -1577,7 +1640,7 @@ function PdfPageView({
                 width: `${Math.min(100, Math.max(1, block.w * 100))}%`,
                 height: `${Math.min(100, Math.max(1.2, block.h * 100))}%`,
               }}
-              onMouseEnter={() => setHoverTarget({ page, side, blockIndex: block.index })}
+              onMouseEnter={() => setHoverTarget({ page, side, source: "block", blockIndex: block.index })}
               onMouseLeave={() => setHoverTarget(null)}
             />
           );
