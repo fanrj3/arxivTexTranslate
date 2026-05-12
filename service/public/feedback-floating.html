@@ -124,14 +124,36 @@
         font-size: 12px;
       }
       .issue-title {
+        -webkit-app-region: no-drag;
+        display: grid;
+        gap: 5px;
+        overflow: hidden;
+        border-radius: 10px;
+        border: 1px solid rgba(15, 23, 42, 0.1);
+        background: rgba(255, 255, 255, 0.82);
+        padding: 8px 10px;
+        color: #334155;
+        cursor: pointer;
+        text-align: left;
+      }
+      .issue-title:hover {
+        border-color: rgba(20, 184, 166, 0.45);
+      }
+      .issue-label {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .issue-text {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        border-radius: 10px;
-        background: rgba(15, 23, 42, 0.05);
-        padding: 8px 10px;
-        color: #334155;
         font-size: 12px;
+        font-weight: 700;
+      }
+      .copy-status {
+        color: #0f8f7f;
+        font-size: 11px;
       }
     </style>
   </head>
@@ -154,7 +176,11 @@
           <button class="action" type="button" id="show-file">Show in Explorer</button>
           <a class="action" id="download-file" href="#" download>Download ZIP</a>
         </div>
-        <div class="issue-title" id="issue-title"></div>
+        <button class="issue-title" type="button" id="issue-title" title="Copy issue title">
+          <span class="issue-label">Issue title - click to copy</span>
+          <span class="issue-text" id="issue-text"></span>
+          <span class="copy-status" id="copy-status"></span>
+        </button>
       </main>
     </section>
     <script>
@@ -168,10 +194,26 @@
       const titleEl = document.querySelector("#issue-title");
       const showButton = document.querySelector("#show-file");
       const downloadLink = document.querySelector("#download-file");
+      const issueTextEl = document.querySelector("#issue-text");
+      const copyStatusEl = document.querySelector("#copy-status");
       let info = null;
 
       closeButton.addEventListener("click", () => window.close());
-      titleEl.textContent = title;
+      issueTextEl.textContent = title;
+
+      async function copyIssueTitle() {
+        try {
+          await navigator.clipboard.writeText(title);
+          copyStatusEl.textContent = "Copied";
+          window.setTimeout(() => {
+            copyStatusEl.textContent = "";
+          }, 1800);
+        } catch {
+          copyStatusEl.textContent = "Copy failed";
+        }
+      }
+
+      titleEl.addEventListener("click", copyIssueTitle);
 
       function formatSize(bytes) {
         if (!Number.isFinite(bytes)) return "";

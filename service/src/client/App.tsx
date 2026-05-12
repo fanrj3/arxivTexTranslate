@@ -476,28 +476,32 @@ function HomePage({
         ) : (
           <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-6 max-lg:grid-cols-1">
             <section className="min-w-0">
-              <div className="mb-5 flex items-end justify-between gap-5 max-md:flex-col max-md:items-stretch">
-                <div>
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border bg-card/80 px-3 py-1 text-xs font-bold text-muted-foreground shadow-sm backdrop-blur">
-                    <Sparkles className="h-3.5 w-3.5 text-primary" />
-                    React + Tailwind + shadcn/ui
+              <Card className="mb-5 overflow-hidden bg-card/85 shadow-soft backdrop-blur-xl">
+                <CardContent className="grid gap-5 p-5">
+                  <div className="flex items-end justify-between gap-5 max-md:flex-col max-md:items-stretch">
+                    <div>
+                      <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-border bg-background/80 px-3 py-1 text-xs font-bold text-muted-foreground shadow-sm backdrop-blur">
+                        <Sparkles className="h-3.5 w-3.5 text-primary" />
+                        React + Tailwind + shadcn/ui
+                      </div>
+                      <h2 className="text-3xl font-black tracking-normal max-sm:text-2xl">论文工作台</h2>
+                      <p className="mt-2 text-sm text-muted-foreground">源码、翻译、编译和反馈文件集中管理。</p>
+                    </div>
+                    <div className="relative w-80 max-md:w-full">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input className="bg-background/80 pl-9 shadow-sm" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索标题或 arXiv ID" />
+                    </div>
                   </div>
-                  <h2 className="text-3xl font-black tracking-normal max-sm:text-2xl">论文工作台</h2>
-                  <p className="mt-2 text-sm text-muted-foreground">把源码拉取、翻译、编译和结果管理放在一个现代化控制台里。</p>
-                </div>
-                <div className="relative w-80 max-md:w-full">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input className="bg-card/80 pl-9" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索标题或 arXiv ID" />
-                </div>
-              </div>
 
-              <div className="mb-4 grid grid-cols-5 gap-3 max-lg:grid-cols-3 max-sm:grid-cols-1">
-                <MetricCard label="全部论文" value={jobs.length} />
-                <MetricCard label="已翻译" value={translatedCount} />
-                <MetricCard label="已编译" value={compiledCount} />
-                <MetricCard label="Tokens" value={formatTokens(usageSummary.totalTokens)} />
-                <MetricCard label="预估费用" value={formatCny(usageSummary.totalCost)} />
-              </div>
+                  <div className="grid grid-cols-5 gap-3 max-lg:grid-cols-3 max-sm:grid-cols-1">
+                    <MetricCard label="全部论文" value={jobs.length} />
+                    <MetricCard label="已翻译" value={translatedCount} />
+                    <MetricCard label="已编译" value={compiledCount} />
+                    <MetricCard label="Tokens" value={formatTokens(usageSummary.totalTokens)} />
+                    <MetricCard label="预估费用" value={formatCny(usageSummary.totalCost)} />
+                  </div>
+                </CardContent>
+              </Card>
 
               <div className="grid gap-3">
                 {filteredJobs.length ? (
@@ -599,7 +603,7 @@ function HomePage({
                 </CardContent>
               </Card>
 
-              <Card className="bg-card/70">
+              <Card className="bg-card/80 shadow-soft">
                 <CardHeader>
                   <CardTitle>运行状态</CardTitle>
                   <CardDescription>当前后台任务和编译完成度。</CardDescription>
@@ -613,6 +617,14 @@ function HomePage({
                     <span className="text-muted-foreground">PDF 产出</span>
                     <span className="font-bold">{compiledCount}/{jobs.length}</span>
                   </div>
+                  <Separator />
+                  <div className="grid gap-2 text-sm">
+                    <span className="text-muted-foreground">Token 消耗</span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold">{formatTokens(usageSummary.totalTokens)}</span>
+                      <span className="font-bold">{formatCny(usageSummary.totalCost)}</span>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </aside>
@@ -625,7 +637,7 @@ function HomePage({
 
 function MetricCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <Card className="bg-card/75 transition hover:-translate-y-0.5 hover:shadow-soft">
+    <Card className="border-border/70 bg-background/75 transition hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-soft">
       <CardContent className="p-4">
         <b className="block text-2xl leading-none">{value}</b>
         <span className="mt-1 block text-xs text-muted-foreground">{label}</span>
