@@ -13,6 +13,9 @@ import { ProxyAgent, fetch as undiciFetch } from "undici";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = parseInt(process.env.PORT) || 3456;
+const HOST = process.env.HOST || "127.0.0.1";
+const UI_ACCESS_TOKEN = process.env.ARXIV_UI_ACCESS_TOKEN || "";
+const ENABLE_BROWSER_UI = process.env.ARXIV_ENABLE_BROWSER_UI === "1";
 const DATA_DIR = process.env.ARXIV_SERVICE_DATA_DIR || path.join(__dirname, "..");
 const JOBS_DIR = path.join(DATA_DIR, "jobs");
 const FEEDBACK_DIR = path.join(DATA_DIR, "feedback");
@@ -282,6 +285,26 @@ async function fetchArxivSource(sourceUrl, explicitProxy = "") {
 }
 
 app.use(express.json({ limit: "50mb" }));
+
+function isLoopbackAddress(value = "") {
+  const address = String(value || "").replace(/^::ffff:/, "");
+  return address === "127.0.0.1" || address === "::1" || address === "localhost";
+}
+
+app.use((req, res, next) => {
+  if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    return res.status(403).send("This service only accepts local connections.");
+  }
+  next();
+});
+
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api/")) return next();
+  if (ENABLE_BROWSER_UI) return next();
+  if (UI_ACCESS_TOKEN && req.get("x-arxiv-ui-token") === UI_ACCESS_TOKEN) return next();
+  return res.status(404).send("Browser UI is disabled. Use the desktop app or local API.");
+});
+
 const staticOptions = {
   etag: false,
   lastModified: false,
@@ -1407,8 +1430,8 @@ app.get("*", (req, res, next) => {
 });
 
 (function start(port) {
-  const s = app.listen(port, () => {
-    console.log(`arXiv Translation Service: http://localhost:${port}`);
+  const s = app.listen(port, HOST, () => {
+    console.log(`arXiv Translation Service: http://${HOST}:${port}`);
   });
   s.on("error", (e) => {
     if (e.code === "EADDRINUSE") { s.close(); start(port + 1); }

@@ -744,8 +744,6 @@ function JobDetail({
   };
 
   const runTranslate = async () => {
-    const apiKey = localStorage.getItem("apiKey");
-
     const existing = await fetchJson<{ taskId?: string } | null>(`/api/jobs/${jobId}/running-task`);
     if (existing?.taskId) {
       connectTask(existing.taskId);
@@ -766,10 +764,6 @@ function JobDetail({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           jobId,
-          ...(apiKey ? { apiKey } : {}),
-          apiEndpoint: localStorage.getItem("apiEndpoint") || "https://api.deepseek.com/anthropic",
-          model: localStorage.getItem("model") || "deepseek-v4-pro",
-          parallelism: Number(localStorage.getItem("parallelism") || "3"),
         }),
       });
       connectTask(data.taskId);
@@ -1170,35 +1164,32 @@ function JobDetail({
 }
 
 function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; notify: (message: string) => void }) {
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("apiKey") || "");
-  const [apiEndpoint, setApiEndpoint] = useState(() => localStorage.getItem("apiEndpoint") || "https://api.deepseek.com/anthropic");
-  const [model, setModel] = useState(() => localStorage.getItem("model") || "deepseek-v4-pro");
+  const [apiKey, setApiKey] = useState("");
+  const [apiEndpoint, setApiEndpoint] = useState("https://api.deepseek.com/anthropic");
+  const [model, setModel] = useState("deepseek-v4-pro");
   const [xelatexPath, setXelatexPath] = useState(() => localStorage.getItem("xelatexPath") || "");
   const [arxivProxy, setArxivProxy] = useState(() => localStorage.getItem("arxivProxy") || "");
-  const [parallelism, setParallelism] = useState(() => localStorage.getItem("parallelism") || "3");
+  const [parallelism, setParallelism] = useState("3");
   const [status, setStatus] = useState<{ text: string; tone: "ok" | "error" | "neutral" } | null>(null);
   const [isVerifyingApi, setIsVerifyingApi] = useState(false);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   useEffect(() => {
+    localStorage.removeItem("apiKey");
     fetchJson<{ apiKeySet: boolean; apiEndpoint: string; model: string; parallelism: number }>("/api/settings")
       .then((settings) => {
-        if (!localStorage.getItem("apiEndpoint") && settings.apiEndpoint) setApiEndpoint(settings.apiEndpoint);
-        if (!localStorage.getItem("model") && settings.model) setModel(settings.model);
-        if (!localStorage.getItem("parallelism") && settings.parallelism) setParallelism(String(settings.parallelism));
-        if (settings.apiKeySet && !localStorage.getItem("apiKey")) setStatus({ text: "服务端已配置 API Key", tone: "ok" });
+        if (settings.apiEndpoint) setApiEndpoint(settings.apiEndpoint);
+        if (settings.model) setModel(settings.model);
+        if (settings.parallelism) setParallelism(String(settings.parallelism));
+        if (settings.apiKeySet) setStatus({ text: "服务端已配置 API Key；留空验证或保存时会继续使用服务端 Key。", tone: "ok" });
       })
       .catch(() => undefined);
   }, []);
 
   const save = async () => {
-    localStorage.setItem("apiKey", apiKey.trim());
-    localStorage.setItem("apiEndpoint", apiEndpoint.trim());
-    localStorage.setItem("model", model.trim());
     localStorage.setItem("xelatexPath", xelatexPath.trim());
     localStorage.setItem("arxivProxy", arxivProxy.trim());
     const normalizedParallelism = String(Math.max(1, Math.min(8, Number(parallelism) || 3)));
-    localStorage.setItem("parallelism", normalizedParallelism);
     await fetchJson("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1302,7 +1293,7 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
           </CardHeader>
           <CardContent className="grid gap-4">
             <Field label="API Key">
-              <Input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="sk-..." />
+              <Input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder="留空则使用服务端已保存的 Key" />
             </Field>
             <Field label="API Endpoint">
               <Input value={apiEndpoint} onChange={(event) => setApiEndpoint(event.target.value)} />

@@ -5,13 +5,15 @@
 import { app, BrowserWindow, ipcMain, nativeImage, screen, shell } from "electron";
 import { fork } from "child_process";
 import { mkdirSync } from "fs";
+import { randomUUID } from "crypto";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_PORT = "3456";
-const LOCAL_ORIGIN = `http://localhost:${SERVER_PORT}`;
+const LOCAL_ORIGIN = `http://127.0.0.1:${SERVER_PORT}`;
 const PRELOAD = path.join(__dirname, "src", "electron", "preload.cjs");
+const UI_ACCESS_TOKEN = randomUUID();
 
 let mainWindow = null;
 let serverProcess = null;
@@ -25,7 +27,13 @@ function startServer() {
     const dataDir = app.getPath("userData");
     mkdirSync(dataDir, { recursive: true });
     serverProcess = fork(path.join(__dirname, "src", "server.js"), [], {
-      env: { ...process.env, PORT: SERVER_PORT, ARXIV_SERVICE_DATA_DIR: dataDir },
+      env: {
+        ...process.env,
+        PORT: SERVER_PORT,
+        HOST: "127.0.0.1",
+        ARXIV_SERVICE_DATA_DIR: dataDir,
+        ARXIV_UI_ACCESS_TOKEN: UI_ACCESS_TOKEN,
+      },
       silent: true,
     });
     serverProcess.stdout.on("data", (data) => {
@@ -77,6 +85,14 @@ function createWindow() {
       preload: PRELOAD,
     },
   });
+
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: [`${LOCAL_ORIGIN}/*`] },
+    (details, callback) => {
+      details.requestHeaders["x-arxiv-ui-token"] = UI_ACCESS_TOKEN;
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
 
   mainWindow.loadURL(LOCAL_ORIGIN);
   mainWindow.setMenuBarVisibility(false);
