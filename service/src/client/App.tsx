@@ -132,6 +132,24 @@ type PdfCompareInfo = {
   renderer: boolean;
 };
 
+type PdfTextLine = {
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  cy: number;
+};
+
+type PdfTextPage = {
+  width: number;
+  height: number;
+  lines: PdfTextLine[];
+};
+
+type HoverTarget = { page: number; cy: number } | null;
+
 type FileTranslationStatus = {
   path: string;
   targetPath: string;
@@ -302,25 +320,27 @@ export default function App() {
 
   return (
     <div className="min-h-screen text-foreground">
-      {path === "/settings" || path === "/settings.html" ? (
-        <SettingsPage navigate={navigate} notify={notify} />
-      ) : compareJobId ? (
-        <PdfComparePage jobId={compareJobId} navigate={navigate} notify={notify} />
-      ) : (
-        <HomePage
-          jobs={jobs}
-          runningTasks={runningTasks}
-          filter={filter}
-          setFilter={setFilter}
-          selectedJobId={selectedJobId}
-          refreshJobs={refreshJobs}
-          openDetail={openDetail}
-          backToList={backToList}
-          deleteJob={deleteJob}
-          navigate={navigate}
-          notify={notify}
-        />
-      )}
+      <div key={`${path}:${selectedJobId || ""}`} className="animate-in">
+        {path === "/settings" || path === "/settings.html" ? (
+          <SettingsPage navigate={navigate} notify={notify} />
+        ) : compareJobId ? (
+          <PdfComparePage jobId={compareJobId} navigate={navigate} notify={notify} />
+        ) : (
+          <HomePage
+            jobs={jobs}
+            runningTasks={runningTasks}
+            filter={filter}
+            setFilter={setFilter}
+            selectedJobId={selectedJobId}
+            refreshJobs={refreshJobs}
+            openDetail={openDetail}
+            backToList={backToList}
+            deleteJob={deleteJob}
+            navigate={navigate}
+            notify={notify}
+          />
+        )}
+      </div>
 
       {confirm && <ConfirmDialog state={confirm} close={() => setConfirm(null)} notify={notify} />}
       <Toaster position="bottom-right" richColors closeButton />
@@ -461,7 +481,7 @@ function HomePage({
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen animate-in">
       <header className="sticky top-0 z-30 border-b border-border/80 bg-background/80 backdrop-blur-xl">
         <div className="mx-auto flex h-[68px] max-w-7xl items-center justify-between gap-4 px-6 max-sm:px-4">
           <div className="flex items-center gap-3">
@@ -1318,7 +1338,7 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
   const [title, setTitle] = useState(jobId);
   const [isPreparing, setIsPreparing] = useState(true);
   const [error, setError] = useState("");
-  const [hoveredPage, setHoveredPage] = useState<number | null>(null);
+  const [hoverTarget, setHoverTarget] = useState<HoverTarget>(null);
   const leftRef = useRef<HTMLDivElement | null>(null);
   const rightRef = useRef<HTMLDivElement | null>(null);
   const syncingRef = useRef(false);
@@ -1371,7 +1391,7 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
   const pages = Array.from({ length: Math.max(0, info?.pageCount || 0) }, (_, index) => index + 1);
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen animate-in">
       <header className="sticky top-0 z-30 border-b border-border/80 bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-[68px] max-w-[1800px] items-center justify-between gap-4 px-6 max-sm:px-4">
           <div className="min-w-0">
@@ -1402,25 +1422,18 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
           </Card>
         )}
 
-        {isPreparing && (
-          <Card className="grid min-h-[55vh] place-items-center bg-card/80">
-            <CardContent className="flex items-center gap-3 text-sm text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              正在检查并生成英文/中文 PDF...
-            </CardContent>
-          </Card>
-        )}
+        {isPreparing && <PdfCompareSkeleton />}
 
         {!isPreparing && info && info.renderer && pages.length > 0 && (
-          <div className="grid h-[calc(100vh-112px)] grid-cols-2 overflow-hidden rounded-lg border bg-card shadow-soft max-lg:h-auto max-lg:grid-cols-1">
+          <div className="grid h-[calc(100vh-112px)] grid-cols-2 overflow-hidden rounded-lg border bg-card shadow-soft animate-in max-lg:h-auto max-lg:grid-cols-1">
             <PdfPane
               title="英文原文"
               side="original"
               jobId={jobId}
               pages={pages}
               paneRef={leftRef}
-              hoveredPage={hoveredPage}
-              setHoveredPage={setHoveredPage}
+              hoverTarget={hoverTarget}
+              setHoverTarget={setHoverTarget}
               onScroll={() => syncScroll(leftRef.current, rightRef.current)}
             />
             <PdfPane
@@ -1429,8 +1442,8 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
               jobId={jobId}
               pages={pages}
               paneRef={rightRef}
-              hoveredPage={hoveredPage}
-              setHoveredPage={setHoveredPage}
+              hoverTarget={hoverTarget}
+              setHoverTarget={setHoverTarget}
               onScroll={() => syncScroll(rightRef.current, leftRef.current)}
             />
           </div>
@@ -1447,14 +1460,132 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
   );
 }
 
+function PdfCompareSkeleton() {
+  const pages = [1, 2, 3];
+  return (
+    <div className="grid h-[calc(100vh-112px)] grid-cols-2 overflow-hidden rounded-lg border bg-card shadow-soft animate-in max-lg:h-auto max-lg:grid-cols-1">
+      {["英文原文", "中文译文"].map((title) => (
+        <section key={title} className="flex min-h-0 flex-col border-l first:border-l-0">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b bg-background/90 px-4">
+            <div className="h-4 w-20 rounded bg-muted animate-pulse" />
+            <div className="h-6 w-16 rounded-full bg-muted animate-pulse" />
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden bg-muted/20 p-4">
+            <div className="mx-auto grid max-w-4xl gap-3">
+              {pages.map((page) => (
+                <div key={`${title}-${page}`} className="aspect-[0.72] w-full overflow-hidden rounded-md bg-background shadow-sm">
+                  <div className="h-full w-full animate-pulse bg-[linear-gradient(110deg,hsl(var(--muted))_8%,hsl(var(--background))_18%,hsl(var(--muted))_33%)] bg-[length:200%_100%]" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function nearestTextLine(lines: PdfTextLine[] | undefined, target: HoverTarget) {
+  if (!target || !lines?.length) return null;
+  let best: PdfTextLine | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const line of lines) {
+    const distance = Math.abs(line.cy - target.cy);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = line;
+    }
+  }
+  return bestDistance < 0.035 ? best : null;
+}
+
+function PdfPageView({
+  title,
+  side,
+  jobId,
+  page,
+  hoverTarget,
+  setHoverTarget,
+}: {
+  title: string;
+  side: "original" | "translated";
+  jobId: string;
+  page: number;
+  hoverTarget: HoverTarget;
+  setHoverTarget: (target: HoverTarget) => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [textPage, setTextPage] = useState<PdfTextPage | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoaded(false);
+    setTextPage(null);
+    fetchJson<PdfTextPage>(`/api/pdf-text/${encodeURIComponent(jobId)}/${side}/${page}`)
+      .then((data) => {
+        if (!cancelled) setTextPage(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [jobId, side, page]);
+
+  const highlighted = hoverTarget?.page === page ? nearestTextLine(textPage?.lines, hoverTarget) : null;
+  const aspectRatio = textPage?.width && textPage?.height ? `${textPage.width} / ${textPage.height}` : "0.72";
+
+  return (
+    <div className="group relative bg-background shadow-sm transition first:rounded-t-md last:rounded-b-md">
+      <div className="relative mx-auto overflow-hidden bg-white" style={{ aspectRatio }}>
+        {!loaded && (
+          <div className="absolute inset-0 animate-pulse bg-[linear-gradient(110deg,hsl(var(--muted))_8%,hsl(var(--background))_18%,hsl(var(--muted))_33%)] bg-[length:200%_100%]" />
+        )}
+        <img
+          className={cn("absolute inset-0 h-full w-full object-contain transition-opacity duration-300", loaded ? "opacity-100" : "opacity-0")}
+          loading="lazy"
+          alt={`${title} page ${page}`}
+          src={`/api/pdf-page/${encodeURIComponent(jobId)}/${side}/${page}.png`}
+          onLoad={() => setLoaded(true)}
+        />
+        {textPage?.lines.map((line) => {
+          const active = highlighted?.id === line.id;
+          return (
+            <button
+              key={line.id}
+              type="button"
+              title={line.text}
+              aria-label={line.text}
+              className={cn(
+                "absolute rounded-sm border-0 bg-transparent p-0 transition-colors",
+                active ? "bg-primary/20 ring-1 ring-primary/50" : "hover:bg-primary/10",
+              )}
+              style={{
+                left: `${Math.max(0, line.x * 100)}%`,
+                top: `${Math.max(0, line.y * 100)}%`,
+                width: `${Math.min(100, Math.max(1, line.w * 100))}%`,
+                height: `${Math.min(100, Math.max(0.8, line.h * 100))}%`,
+              }}
+              onMouseEnter={() => setHoverTarget({ page, cy: line.cy })}
+              onMouseLeave={() => setHoverTarget(null)}
+            />
+          );
+        })}
+        <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-background/85 px-2 py-1 text-[11px] font-bold text-muted-foreground opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100">
+          Page {page}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PdfPane({
   title,
   side,
   jobId,
   pages,
   paneRef,
-  hoveredPage,
-  setHoveredPage,
+  hoverTarget,
+  setHoverTarget,
   onScroll,
 }: {
   title: string;
@@ -1462,36 +1593,28 @@ function PdfPane({
   jobId: string;
   pages: number[];
   paneRef: MutableRefObject<HTMLDivElement | null>;
-  hoveredPage: number | null;
-  setHoveredPage: (page: number | null) => void;
+  hoverTarget: HoverTarget;
+  setHoverTarget: (target: HoverTarget) => void;
   onScroll: () => void;
 }) {
   return (
     <section className="flex min-h-0 flex-col border-l first:border-l-0">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b bg-muted/40 px-4">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b bg-background/90 px-4 backdrop-blur">
         <div className="font-bold">{title}</div>
         <StatusBadge status="id">{pages.length} pages</StatusBadge>
       </div>
       <div ref={paneRef} className="min-h-0 flex-1 overflow-auto bg-muted/20 p-4" onScroll={onScroll}>
-        <div className="mx-auto grid max-w-4xl gap-4">
+        <div className="mx-auto grid max-w-4xl gap-3">
           {pages.map((page) => (
-            <div
+            <PdfPageView
               key={`${side}-${page}`}
-              className={cn("rounded-lg border bg-background p-2 shadow-sm transition", hoveredPage === page && "border-primary shadow-primary")}
-              onMouseEnter={() => setHoveredPage(page)}
-              onMouseLeave={() => setHoveredPage(null)}
-            >
-              <div className="mb-2 flex items-center justify-between px-1 text-xs text-muted-foreground">
-                <span>{title}</span>
-                <span>Page {page}</span>
-              </div>
-              <img
-                className="block w-full rounded border bg-white"
-                loading="lazy"
-                alt={`${title} page ${page}`}
-                src={`/api/pdf-page/${encodeURIComponent(jobId)}/${side}/${page}.png`}
-              />
-            </div>
+              title={title}
+              side={side}
+              jobId={jobId}
+              page={page}
+              hoverTarget={hoverTarget}
+              setHoverTarget={setHoverTarget}
+            />
           ))}
         </div>
       </div>

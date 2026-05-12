@@ -905,7 +905,7 @@ function findPdfForStem(jobDir, stem, preferCn = false) {
     const exact = stem && pdfs.find(file => file === `${stem}.pdf`);
     const cn = pdfs.find(file => file.toLowerCase().endsWith("_cn.pdf"));
     const nonCn = pdfs.find(file => !file.toLowerCase().endsWith("_cn.pdf"));
-    const pdf = exact || (preferCn ? cn : nonCn) || cn || pdfs[0];
+    const pdf = exact || (preferCn ? cn : nonCn);
     if (pdf) return path.join(dir, pdf);
   }
   return "";
@@ -941,6 +941,59 @@ async function pdfPageCount(pdfPath) {
   const result = await runProcess("pdfinfo", [pdfPath], path.dirname(pdfPath), 30000);
   const match = result.stdout.match(/^Pages:\s+(\d+)/m);
   return match ? Number(match[1]) : 0;
+}
+
+async function pdfTextLines(pdfPath, pageNumber) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const data = new Uint8Array(readFileSync(pdfPath));
+  const loadingTask = pdfjs.getDocument({ data, disableWorker: true, useSystemFonts: true });
+  const doc = await loadingTask.promise;
+  const page = await doc.getPage(pageNumber);
+  const viewport = page.getViewport({ scale: 1 });
+  const text = await page.getTextContent();
+  const items = [];
+  for (const item of text.items || []) {
+    if (!item?.str?.trim()) continue;
+    const transform = pdfjs.Util.transform(viewport.transform, item.transform);
+    const fontHeight = Math.hypot(transform[2], transform[3]) || Math.abs(transform[3]) || 8;
+    const left = transform[4];
+    const top = transform[5] - fontHeight;
+    const width = Math.max(1, item.width || item.str.length * fontHeight * 0.45);
+    const height = Math.max(2, fontHeight);
+    items.push({ text: item.str, left, top, right: left + width, bottom: top + height, height });
+  }
+  items.sort((a, b) => a.top - b.top || a.left - b.left);
+  const lines = [];
+  for (const item of items) {
+    const y = item.top + item.height / 2;
+    let line = lines.find(candidate => Math.abs(candidate.y - y) < Math.max(3, item.height * 0.65));
+    if (!line) {
+      line = { left: item.left, top: item.top, right: item.right, bottom: item.bottom, y, text: item.text };
+      lines.push(line);
+    } else {
+      line.left = Math.min(line.left, item.left);
+      line.top = Math.min(line.top, item.top);
+      line.right = Math.max(line.right, item.right);
+      line.bottom = Math.max(line.bottom, item.bottom);
+      line.y = (line.y + y) / 2;
+      line.text = `${line.text} ${item.text}`;
+    }
+  }
+  return {
+    width: viewport.width,
+    height: viewport.height,
+    lines: lines
+      .filter(line => line.text.trim().length > 1)
+      .map((line, index) => ({
+        id: `${pageNumber}-${index}`,
+        text: line.text.replace(/\s+/g, " ").trim(),
+        x: line.left / viewport.width,
+        y: line.top / viewport.height,
+        w: Math.max(0.01, (line.right - line.left) / viewport.width),
+        h: Math.max(0.006, (line.bottom - line.top) / viewport.height),
+        cy: ((line.top + line.bottom) / 2) / viewport.height,
+      })),
+  };
 }
 
 function findTranslatedTexFiles(dir, root = dir) {
@@ -1621,7 +1674,8 @@ app.get("/api/pdf-page/:jobId/:variant/:page.png", async (req, res) => {
     const { pdfPath } = await ensureComparePdf(jobDir, variant, "");
     const cacheDir = path.join(jobDir, "build", "compare-pages");
     if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
-    const outBase = path.join(cacheDir, `${variant}-${page}`);
+    const pdfStamp = path.basename(pdfPath, ".pdf").replace(/[^a-z0-9_-]/gi, "_");
+    const outBase = path.join(cacheDir, `${variant}-${pdfStamp}-${page}`);
     const pngPath = `${outBase}.png`;
     if (!existsSync(pngPath) || statSync(pngPath).mtimeMs < statSync(pdfPath).mtimeMs) {
       const result = await runProcess("pdftoppm", ["-png", "-singlefile", "-r", "125", "-f", String(page), "-l", String(page), pdfPath, outBase], cacheDir, 60000);
@@ -1634,6 +1688,20 @@ app.get("/api/pdf-page/:jobId/:variant/:page.png", async (req, res) => {
     createReadStream(pngPath).pipe(res);
   } catch (error) {
     res.status(500).send(error.message || "render failed");
+  }
+});
+
+app.get("/api/pdf-text/:jobId/:variant/:page", async (req, res) => {
+  try {
+    const jobDir = path.join(JOBS_DIR, req.params.jobId);
+    if (!existsSync(jobDir)) return res.status(404).json({ error: "job not found" });
+    const variant = req.params.variant === "original" ? "original" : "translated";
+    const page = Math.max(1, Math.min(9999, Number(req.params.page || 1)));
+    const { pdfPath } = await ensureComparePdf(jobDir, variant, "");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.json(await pdfTextLines(pdfPath, page));
+  } catch (error) {
+    res.status(500).json({ error: error.message || "text extraction failed" });
   }
 });
 
