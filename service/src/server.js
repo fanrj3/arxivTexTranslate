@@ -3,6 +3,7 @@
  */
 
 import express from "express";
+import { spawn } from "child_process";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, readdirSync,
   statSync, createReadStream, rmSync, renameSync, cpSync } from "fs";
 import path from "path";
@@ -266,6 +267,16 @@ function arxivFetchError(error, sourceUrl, proxyUrl) {
   return err;
 }
 
+function openSystemPath(targetPath) {
+  if (process.platform === "win32") {
+    spawn("cmd.exe", ["/c", "start", "", targetPath], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  } else if (process.platform === "darwin") {
+    spawn("open", [targetPath], { detached: true, stdio: "ignore" }).unref();
+  } else {
+    spawn("xdg-open", [targetPath], { detached: true, stdio: "ignore" }).unref();
+  }
+}
+
 async function fetchArxivSource(sourceUrl, explicitProxy = "") {
   const proxyUrl = resolveProxy(sourceUrl, explicitProxy);
   const controller = new AbortController();
@@ -282,6 +293,61 @@ async function fetchArxivSource(sourceUrl, explicitProxy = "") {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function decodeXml(value = "") {
+  return String(value)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstXmlTag(entry, tag) {
+  const match = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i").exec(entry);
+  return decodeXml(match?.[1] || "");
+}
+
+function parseArxivSearchFeed(xml) {
+  const entries = String(xml || "").match(/<entry>[\s\S]*?<\/entry>/g) || [];
+  return entries.map((entry) => {
+    const idUrl = firstXmlTag(entry, "id");
+    const idMatch = idUrl.match(/\/abs\/([^v\s]+)(?:v\d+)?$/);
+    const authors = [...entry.matchAll(/<author>[\s\S]*?<name>([\s\S]*?)<\/name>[\s\S]*?<\/author>/gi)]
+      .map((match) => decodeXml(match[1]))
+      .filter(Boolean);
+    const categories = [...entry.matchAll(/<category[^>]*term="([^"]+)"/gi)].map((match) => decodeXml(match[1]));
+    return {
+      id: idMatch?.[1] || idUrl,
+      title: firstXmlTag(entry, "title"),
+      summary: firstXmlTag(entry, "summary"),
+      published: firstXmlTag(entry, "published"),
+      updated: firstXmlTag(entry, "updated"),
+      authors,
+      categories,
+      absUrl: idUrl,
+      pdfUrl: idMatch?.[1] ? `https://arxiv.org/pdf/${idMatch[1]}` : "",
+    };
+  }).filter((item) => item.id && item.title);
+}
+
+function arxivSearchQueries(raw) {
+  const query = String(raw || "").trim();
+  if (/^\d{4}\.\d{4,5}(?:v\d+)?$/.test(query)) return [`id:${query}`];
+  if (/^https?:\/\//i.test(query)) {
+    const match = query.match(/(\d{4}\.\d{4,5})(?:v\d+)?/);
+    if (match) return [`id:${match[1]}`];
+  }
+  const terms = query.split(/\s+/).map((item) => item.replace(/[^\p{L}\p{N}._-]+/gu, "")).filter(Boolean);
+  const queries = [];
+  if (terms.length >= 2) queries.push(`ti:"${query.replace(/"/g, "")}"`);
+  if (terms.length) queries.push(terms.map((term) => `all:${term}`).join("+AND+"));
+  queries.push(`all:${query.replace(/\s+/g, "+")}`);
+  return [...new Set(queries)];
 }
 
 app.use(express.json({ limit: "50mb" }));
@@ -956,9 +1022,16 @@ app.post("/api/translate", async (req, res) => {
           if (relPath === mainSourceTex) {
             translated = translated.replace(/(\\documentclass(?:\[[^\]]*\])?\{[^}]+\})/, `$1${XELATEX_SHIM}`);
           }
-          const validation = validateTranslatedTex(translationFiles[relPath], translated, relPath);
+          let validation = validateTranslatedTex(translationFiles[relPath], translated, relPath);
+          let structuralFallback = false;
           if (!validation.ok) {
-            throw new Error(`Structure validation failed: ${validation.issues.slice(0, 4).join("; ")}`);
+            taskLog(task, `Thread ${threadId}: structure validation failed for ${relPath}; preserving original file structure (${validation.issues.slice(0, 3).join("; ")})`);
+            translated = patchTranslatedInputs(translationFiles[relPath], relPath, texMap);
+            if (relPath === mainSourceTex) {
+              translated = translated.replace(/(\\documentclass(?:\[[^\]]*\])?\{[^}]+\})/, `$1${XELATEX_SHIM}`);
+            }
+            validation = validateTranslatedTex(translationFiles[relPath], translated, relPath);
+            structuralFallback = true;
           }
 
           const target = path.join(jobDir, ...targetRelPath.replace(/\\/g, "/").split("/"));
@@ -977,6 +1050,7 @@ app.post("/api/translate", async (req, res) => {
             unitCount: result.unitCount ?? fileState.unitCount ?? 0,
             batchCount: result.batchCount ?? fileState.batchCount ?? 0,
             validation,
+            structuralFallback,
             finishedAt: Date.now(),
             durationSeconds: Math.round((Date.now() - startedAt) / 1000),
           });
@@ -1353,6 +1427,28 @@ app.get("/api/feedback/:file/info", (req, res) => {
 });
 
 // ── Fetch arXiv source by ID/URL ──
+app.get("/api/search-arxiv", async (req, res) => {
+  try {
+    const query = String(req.query.q || "").trim();
+    const maxResults = Math.max(1, Math.min(20, Number(req.query.maxResults || 8)));
+    if (!query) return res.json({ results: [] });
+    const proxy = String(req.query.proxy || "");
+    let lastStatus = 0;
+    for (const searchQuery of arxivSearchQueries(query)) {
+      const url = `https://export.arxiv.org/api/query?search_query=${encodeURIComponent(searchQuery)}&start=0&max_results=${maxResults}&sortBy=relevance&sortOrder=descending`;
+      const resp = await fetchArxivSource(url, proxy);
+      lastStatus = resp.status;
+      if (!resp.ok) continue;
+      const results = parseArxivSearchFeed(await resp.text());
+      if (results.length) return res.json({ results, query: searchQuery });
+    }
+    if (lastStatus && lastStatus !== 200) return res.status(502).json({ error: `arXiv search returned HTTP ${lastStatus}` });
+    res.json({ results: [] });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
 app.post("/api/fetch-arxiv", async (req, res) => {
   try {
     const { query, proxy } = req.body;
@@ -1404,18 +1500,13 @@ app.post("/api/fetch-arxiv", async (req, res) => {
 app.get("/api/open/:jobId", async (req, res) => {
   const jobDir = path.join(JOBS_DIR, req.params.jobId);
   if (!existsSync(jobDir)) return res.status(404).json({ error: "not found" });
-  const { exec } = await import("child_process");
-  exec(`start "" "${jobDir}"`);
+  openSystemPath(jobDir);
   res.json({ ok: true });
 });
 
 app.get("/api/open-feedback-folder", async (_req, res) => {
   mkdirSync(FEEDBACK_DIR, { recursive: true });
-  const { exec } = await import("child_process");
-  const escaped = FEEDBACK_DIR.replace(/"/g, '""');
-  if (process.platform === "win32") exec(`start "" "${escaped}"`);
-  else if (process.platform === "darwin") exec(`open "${escaped}"`);
-  else exec(`xdg-open "${escaped}"`);
+  openSystemPath(FEEDBACK_DIR);
   res.json({ ok: true, path: FEEDBACK_DIR });
 });
 

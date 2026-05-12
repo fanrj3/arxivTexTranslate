@@ -110,6 +110,18 @@ type RunningTask = {
   startTime?: number;
 };
 
+type ArxivSearchResult = {
+  id: string;
+  title: string;
+  summary?: string;
+  published?: string;
+  updated?: string;
+  authors?: string[];
+  categories?: string[];
+  absUrl?: string;
+  pdfUrl?: string;
+};
+
 type FileTranslationStatus = {
   path: string;
   targetPath: string;
@@ -330,6 +342,8 @@ function HomePage({
 }) {
   const [arxivInput, setArxivInput] = useState("");
   const [isFetching, setIsFetching] = useState(false);
+  const [isSearchingArxiv, setIsSearchingArxiv] = useState(false);
+  const [arxivResults, setArxivResults] = useState<ArxivSearchResult[]>([]);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -357,8 +371,10 @@ function HomePage({
     { totalTokens: 0, totalCost: 0, byModel: {} as Record<string, number> },
   ), [jobs]);
 
-  const fetchArxiv = async () => {
-    const query = arxivInput.trim();
+  const looksLikeArxivId = (value: string) => /(\d{4}\.\d{4,5})(?:v\d+)?/.test(value);
+
+  const fetchArxiv = async (value = arxivInput) => {
+    const query = value.trim();
     if (!query) return;
     setIsFetching(true);
     try {
@@ -368,6 +384,7 @@ function HomePage({
         body: JSON.stringify({ query, proxy: localStorage.getItem("arxivProxy") || "" }),
       });
       setArxivInput("");
+      setArxivResults([]);
       notify("源码已拉取");
       await refreshJobs();
       openDetail(data.jobId);
@@ -375,6 +392,30 @@ function HomePage({
       notify(error instanceof Error ? error.message : "拉取失败");
     } finally {
       setIsFetching(false);
+    }
+  };
+
+  const searchArxiv = async () => {
+    const query = arxivInput.trim();
+    if (!query) return;
+    if (looksLikeArxivId(query)) {
+      await fetchArxiv(query);
+      return;
+    }
+    setIsSearchingArxiv(true);
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        maxResults: "8",
+        proxy: localStorage.getItem("arxivProxy") || "",
+      });
+      const data = await fetchJson<{ results: ArxivSearchResult[] }>(`/api/search-arxiv?${params.toString()}`);
+      setArxivResults(data.results || []);
+      if (!data.results?.length) notify("没有找到匹配的 arXiv 论文");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "arXiv 搜索失败");
+    } finally {
+      setIsSearchingArxiv(false);
     }
   };
 
@@ -483,16 +524,42 @@ function HomePage({
                         value={arxivInput}
                         onChange={(event) => setArxivInput(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter") fetchArxiv();
+                          if (event.key === "Enter") searchArxiv();
                         }}
-                        placeholder="2407.08726"
+                        placeholder="arXiv ID、URL 或关键词"
                         spellCheck={false}
                       />
-                      <Button size="icon" disabled={isFetching} onClick={fetchArxiv} aria-label="拉取源码">
-                        {isFetching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                      <Button size="icon" disabled={isFetching || isSearchingArxiv} onClick={searchArxiv} aria-label="搜索或拉取源码">
+                        {isFetching || isSearchingArxiv ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                       </Button>
                     </div>
                   </div>
+
+                  {arxivResults.length > 0 && (
+                    <div className="grid gap-2">
+                      {arxivResults.map((paper) => (
+                        <button
+                          key={paper.id}
+                          type="button"
+                          className="group rounded-lg border bg-card/70 p-3 text-left transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-soft"
+                          onClick={() => fetchArxiv(paper.id)}
+                          disabled={isFetching}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="line-clamp-2 text-sm font-bold leading-5">{paper.title}</div>
+                              <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                <span className="font-mono text-info">{paper.id}</span>
+                                {paper.authors?.slice(0, 2).join(", ")}
+                                {paper.published && <span>{new Date(paper.published).getFullYear()}</span>}
+                              </div>
+                            </div>
+                            <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition group-hover:text-primary" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   <Separator />
 

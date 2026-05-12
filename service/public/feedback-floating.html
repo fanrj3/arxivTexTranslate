@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>反馈包</title>
+    <title>Feedback package</title>
     <style>
       * {
         box-sizing: border-box;
@@ -113,16 +113,16 @@
   <body>
     <section class="panel">
       <header class="titlebar">
-        <strong>反馈文件已准备好</strong>
-        <button class="close" type="button" title="关闭" aria-label="关闭">×</button>
+        <strong>Feedback package ready</strong>
+        <button class="close" type="button" title="Close" aria-label="Close">×</button>
       </header>
       <main>
-        <p class="hint">把下面的 ZIP 拖到 GitHub Issue 页面正文中即可上传；Issue 标题已复制到剪贴板。</p>
+        <p class="hint">Drag the ZIP below into the GitHub Issue body. The issue title has already been copied.</p>
         <div class="zip" draggable="true" id="zip-card">
           <div class="icon">ZIP</div>
           <div>
             <div class="name" id="zip-name">log.zip</div>
-            <div class="meta" id="zip-meta">正在读取文件信息...</div>
+            <div class="meta" id="zip-meta">Loading file info...</div>
           </div>
         </div>
         <div class="issue-title" id="issue-title"></div>
@@ -150,28 +150,26 @@
 
       async function loadInfo() {
         if (!file) {
-          metaEl.textContent = "缺少反馈文件名";
+          metaEl.textContent = "Missing feedback file name";
           return;
         }
         const response = await fetch(`/api/feedback/${encodeURIComponent(file)}/info`);
         const data = await response.json();
-        if (!response.ok || data.error) throw new Error(data.error || "读取失败");
+        if (!response.ok || data.error) throw new Error(data.error || "Failed to read file info");
         info = data;
         nameEl.textContent = data.fileName;
-        metaEl.textContent = `${formatSize(data.size)} · 可直接拖拽上传`;
+        metaEl.textContent = `${formatSize(data.size)} · drag to upload`;
       }
 
       card.addEventListener("dragstart", (event) => {
         if (!info) return;
-        const downloadUrl = `${location.origin}${info.downloadUrl}`;
+        event.preventDefault();
         event.dataTransfer.effectAllowed = "copy";
-        event.dataTransfer.setData("text/plain", info.fileName);
-        event.dataTransfer.setData("DownloadURL", `application/zip:${info.fileName}:${downloadUrl}`);
         window.feedbackBridge?.startDrag(info.filePath);
       });
 
       loadInfo().catch((error) => {
-        metaEl.textContent = error.message || "读取失败";
+        metaEl.textContent = error.message || "Failed to read file info";
       });
     </script>
   </body>

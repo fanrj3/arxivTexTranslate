@@ -14,7 +14,7 @@ export async function resolveXelatex(preferredPath = "") {
   const name = process.platform === "win32" ? "xelatex.exe" : "xelatex";
   try {
     const { stdout } = await new Promise((resolve, reject) => {
-      const p = spawn(whichCmd, [name], { shell: true });
+      const p = spawn(whichCmd, [name], { shell: false });
       let out = ""; p.stdout.on("data", d => out += d);
       p.on("close", code => code === 0 ? resolve({ stdout: out }) : reject(new Error("not found")));
       p.on("error", reject);
@@ -34,7 +34,7 @@ function runCmd(cmd, args, cwd) {
     let stdout = "", stderr = "";
     let proc;
     try {
-      proc = spawn(cmd, args, { cwd, shell: true, timeout: 120000 });
+      proc = spawn(cmd, args, { cwd, shell: false, timeout: 120000 });
     } catch (e) {
       resolve({ exitCode: 1, stdout, stderr: e.message });
       return;

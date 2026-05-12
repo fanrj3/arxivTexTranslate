@@ -563,6 +563,37 @@ function hasUntranslatedEnglish(unit, translatedText) {
   return !/[\u3400-\u9fff]/.test(targetPlain) || sourcePlain === targetPlain || residual.some((line) => targetPlain.includes(line));
 }
 
+function placeholderSet(text) {
+  return new Set(String(text || "").match(/@@LATEX_\d+@@/g) || []);
+}
+
+function hasBalancedBraces(text) {
+  let depth = 0;
+  const value = String(text || "");
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] === "\\" && i + 1 < value.length) {
+      i++;
+      continue;
+    }
+    if (value[i] === "{") depth++;
+    if (value[i] === "}") depth--;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
+function sanitizeUnitTranslation(unit, translatedText) {
+  const text = String(translatedText || "");
+  if (!text.trim()) return { ok: false, reason: "empty translation" };
+  if (!hasBalancedBraces(text)) return { ok: false, reason: "unbalanced braces" };
+  const expected = placeholderSet(unit.protectedText);
+  const actual = placeholderSet(text);
+  for (const token of expected) {
+    if (!actual.has(token)) return { ok: false, reason: `missing protected placeholder ${token}` };
+  }
+  return { ok: true, text };
+}
+
 async function translateBatch({ relPath, targetPath, contextNote, texFileMap, manifest, batch, batchIndex, batchCount, totalUnitCount, apiKey, apiEndpoint, model, onProgress, retry = false }) {
   const userPrompt = buildBatchPrompt({
     relPath,
@@ -619,6 +650,7 @@ export async function translateStructuredTexFile(relPath, content, contextNote, 
   const batches = chunkUnits(units);
   const usageParts = [];
   const translations = new Map();
+  const rejectedUnits = [];
   const startTime = Date.now();
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -641,7 +673,11 @@ export async function translateStructuredTexFile(relPath, content, contextNote, 
     usageParts.push(batchResult.usage);
     for (const item of list) {
       if (!item?.id || typeof item.text !== "string") continue;
-      translations.set(item.id, item.text);
+      const unit = units.find((candidate) => candidate.id === item.id);
+      if (!unit) continue;
+      const sanitized = sanitizeUnitTranslation(unit, item.text);
+      if (sanitized.ok) translations.set(item.id, sanitized.text);
+      else rejectedUnits.push({ id: item.id, reason: sanitized.reason });
     }
 
     const partial = applyUnitTranslations(content, units, translations);
@@ -687,14 +723,22 @@ export async function translateStructuredTexFile(relPath, content, contextNote, 
       usageParts.push(batchResult.usage);
       for (const item of list) {
         if (!item?.id || typeof item.text !== "string") continue;
-        translations.set(item.id, item.text);
+        const unit = units.find((candidate) => candidate.id === item.id);
+        if (!unit) continue;
+        const sanitized = sanitizeUnitTranslation(unit, item.text);
+        if (sanitized.ok) translations.set(item.id, sanitized.text);
+        else rejectedUnits.push({ id: item.id, reason: sanitized.reason });
       }
     }
   }
 
   const missing = units.filter((unit) => !translations.has(unit.id));
   if (missing.length) {
-    throw new Error(`Translation batch missed ${missing.length} units: ${missing.slice(0, 5).map((unit) => unit.id).join(", ")}`);
+    for (const unit of missing) translations.set(unit.id, unit.protectedText);
+    const rejectedText = rejectedUnits.length
+      ? ` (${rejectedUnits.slice(0, 3).map((item) => `${item.id}: ${item.reason}`).join("; ")})`
+      : "";
+    onProgress?.({ type: "fallback", message: `Preserved ${missing.length} source units for structural safety${rejectedText}` });
   }
 
   const translatedContent = applyUnitTranslations(content, units, translations);
