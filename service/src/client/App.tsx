@@ -252,18 +252,35 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   return data as T;
 }
 
+function runAppViewTransition(update: () => void) {
+  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const viewTransitionDocument = document as Document & {
+    startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+  };
+
+  if (prefersReducedMotion || !viewTransitionDocument.startViewTransition) {
+    update();
+    return;
+  }
+
+  viewTransitionDocument.startViewTransition(update);
+}
+
 function usePath() {
   const [path, setPath] = useState(() => window.location.pathname);
 
   useEffect(() => {
-    const onPop = () => setPath(window.location.pathname);
+    const onPop = () => runAppViewTransition(() => setPath(window.location.pathname));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  const navigate = useCallback((next: string) => {
-    window.history.pushState({}, "", next);
-    setPath(next);
+  const navigate = useCallback((next: string, update?: () => void) => {
+    runAppViewTransition(() => {
+      update?.();
+      if (window.location.pathname !== next) window.history.pushState({}, "", next);
+      setPath(next);
+    });
   }, []);
 
   return { path, navigate };
@@ -359,14 +376,13 @@ function AppShell() {
 
   const openDetail = useCallback(
     (id: string) => {
-      setSelectedJobId(id);
-      navigate("/");
+      navigate("/", () => setSelectedJobId(id));
     },
     [navigate],
   );
 
   const backToList = useCallback(() => {
-    setSelectedJobId(null);
+    runAppViewTransition(() => setSelectedJobId(null));
     refreshJobs().catch(() => undefined);
   }, [refreshJobs]);
 
@@ -386,7 +402,7 @@ function AppShell() {
   );
 
   return (
-    <div className={cn("language-shell min-h-screen text-foreground", isSwitching && "is-language-switching")}>
+    <div className={cn("app-shell min-h-screen text-foreground", isSwitching && "is-language-switching")}>
       <div key={`${path}:${selectedJobId || ""}`} className="animate-in">
         {path === "/settings" || path === "/settings.html" ? (
           <SettingsPage navigate={navigate} notify={notify} />

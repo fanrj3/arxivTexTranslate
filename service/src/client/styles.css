@@ -105,12 +105,12 @@ button {
   animation: fade-in .16s ease both;
 }
 
-.language-shell {
+.app-shell {
   view-transition-name: app-shell;
 }
 
-.language-shell.is-language-switching {
-  animation: language-soft-pulse .34s cubic-bezier(.2,.8,.2,1) both;
+.app-shell.is-language-switching {
+  animation: app-soft-pulse .34s cubic-bezier(.2,.8,.2,1) both;
 }
 
 .language-toggle-label {
@@ -121,11 +121,11 @@ button {
 }
 
 ::view-transition-old(app-shell) {
-  animation: language-view-out .18s cubic-bezier(.4,0,1,1) both;
+  animation: app-view-out .18s cubic-bezier(.4,0,1,1) both;
 }
 
 ::view-transition-new(app-shell) {
-  animation: language-view-in .34s cubic-bezier(.2,.8,.2,1) both;
+  animation: app-view-in .34s cubic-bezier(.2,.8,.2,1) both;
 }
 
 .scan-line::after {
@@ -158,7 +158,7 @@ button {
   }
 }
 
-@keyframes language-view-out {
+@keyframes app-view-out {
   from {
     opacity: 1;
     filter: blur(0);
@@ -171,7 +171,7 @@ button {
   }
 }
 
-@keyframes language-view-in {
+@keyframes app-view-in {
   from {
     opacity: 0;
     filter: blur(9px);
@@ -184,7 +184,7 @@ button {
   }
 }
 
-@keyframes language-soft-pulse {
+@keyframes app-soft-pulse {
   0% {
     opacity: .9;
     transform: translateY(2px);
