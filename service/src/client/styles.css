@@ -105,6 +105,29 @@ button {
   animation: fade-in .16s ease both;
 }
 
+.language-shell {
+  view-transition-name: app-shell;
+}
+
+.language-shell.is-language-switching {
+  animation: language-soft-pulse .34s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.language-toggle-label {
+  display: inline-block;
+  min-width: 1.7rem;
+  text-align: center;
+  animation: language-label-in .24s cubic-bezier(.2,.8,.2,1) both;
+}
+
+::view-transition-old(app-shell) {
+  animation: language-view-out .18s cubic-bezier(.4,0,1,1) both;
+}
+
+::view-transition-new(app-shell) {
+  animation: language-view-in .34s cubic-bezier(.2,.8,.2,1) both;
+}
+
 .scan-line::after {
   content: "";
   position: absolute;
@@ -132,6 +155,54 @@ button {
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes language-view-out {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: .15;
+    filter: blur(7px);
+    transform: translateY(-8px) scale(.992);
+  }
+}
+
+@keyframes language-view-in {
+  from {
+    opacity: 0;
+    filter: blur(9px);
+    transform: translateY(12px) scale(.992);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes language-soft-pulse {
+  0% {
+    opacity: .9;
+    transform: translateY(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes language-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

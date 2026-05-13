@@ -298,18 +298,29 @@ export default function App() {
 }
 
 function LanguageToggle() {
-  const { locale, setLocale, t } = useI18n();
+  const { locale, setLocale, isSwitching, t } = useI18n();
   const next: Locale = locale === "zh-CN" ? "en-US" : "zh-CN";
 
   return (
-    <Button variant="secondary" size="sm" title={t("app.language")} onClick={() => setLocale(next)}>
-      <Languages className="h-4 w-4" />
-      {locale === "zh-CN" ? "EN" : "\u4e2d"}
+    <Button
+      variant="secondary"
+      size="sm"
+      title={t("app.language")}
+      aria-pressed={locale === "en-US"}
+      className="language-toggle h-9 min-w-20 gap-2 overflow-hidden rounded-full border border-border/80 bg-background/80 px-3 shadow-sm backdrop-blur transition hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-soft"
+      onClick={() => setLocale(next)}
+      disabled={isSwitching}
+    >
+      <Languages className={cn("h-4 w-4 transition-transform duration-300", isSwitching && "rotate-12 scale-110")} />
+      <span key={locale} className="language-toggle-label font-bold">
+        {locale === "zh-CN" ? "EN" : "\u4e2d"}
+      </span>
     </Button>
   );
 }
 
 function AppShell() {
+  const { isSwitching } = useI18n();
   const { path, navigate } = usePath();
   const compareJobId = path.startsWith("/compare/") ? decodeURIComponent(path.slice("/compare/".length)) : "";
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -375,7 +386,7 @@ function AppShell() {
   );
 
   return (
-    <div className="min-h-screen text-foreground">
+    <div className={cn("language-shell min-h-screen text-foreground", isSwitching && "is-language-switching")}>
       <div key={`${path}:${selectedJobId || ""}`} className="animate-in">
         {path === "/settings" || path === "/settings.html" ? (
           <SettingsPage navigate={navigate} notify={notify} />

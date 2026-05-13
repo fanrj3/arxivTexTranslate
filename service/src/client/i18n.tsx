@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 export type Locale = "zh-CN" | "en-US";
 
@@ -170,6 +170,7 @@ const dictionaries = {
 type I18nContextValue = {
   locale: Locale;
   setLocale: (locale: Locale) => void;
+  isSwitching: boolean;
   t: (key: string, fallback?: string) => string;
 };
 
@@ -183,17 +184,41 @@ function initialLocale(): Locale {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(() => initialLocale());
+  const [isSwitching, setIsSwitching] = useState(false);
 
   useEffect(() => {
     localStorage.setItem("locale", locale);
     document.documentElement.lang = locale;
   }, [locale]);
 
+  const setLocale = useCallback((nextLocale: Locale) => {
+    if (nextLocale === locale) return;
+
+    const updateLocale = () => setLocaleState(nextLocale);
+    const finishSwitching = () => {
+      window.setTimeout(() => setIsSwitching(false), 80);
+    };
+    const viewTransitionDocument = document as Document & {
+      startViewTransition?: (callback: () => void) => { finished: Promise<void> };
+    };
+
+    setIsSwitching(true);
+    if (viewTransitionDocument.startViewTransition) {
+      const transition = viewTransitionDocument.startViewTransition(updateLocale);
+      transition.finished.finally(finishSwitching);
+      return;
+    }
+
+    window.requestAnimationFrame(updateLocale);
+    window.setTimeout(finishSwitching, 260);
+  }, [locale]);
+
   const value = useMemo<I18nContextValue>(() => ({
     locale,
-    setLocale: setLocaleState,
+    setLocale,
+    isSwitching,
     t: (key, fallback) => dictionaries[locale][key] || dictionaries["zh-CN"][key] || fallback || key,
-  }), [locale]);
+  }), [isSwitching, locale, setLocale]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
