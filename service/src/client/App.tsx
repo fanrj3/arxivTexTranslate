@@ -8,6 +8,7 @@ import {
   FileArchive,
   FileText,
   FolderOpen,
+  Languages,
   Loader2,
   Play,
   RefreshCw,
@@ -37,6 +38,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
+import { I18nProvider, type Locale, useI18n } from "./i18n";
 import { cn } from "./lib/utils";
 
 type JobStatus = "compiled" | "translated" | "extracted" | "empty" | string;
@@ -225,13 +227,12 @@ type ConfirmState = {
 } | null;
 
 const statusLabels: Record<string, string> = {
-  compiled: "已编译",
-  translated: "已翻译",
-  extracted: "已解包",
-  empty: "待处理",
-  running: "运行中",
+  compiled: "\u5df2\u7f16\u8bd1",
+  translated: "\u5df2\u7ffb\u8bd1",
+  extracted: "\u5df2\u89e3\u5305",
+  empty: "\u7a7a\u4efb\u52a1",
+  running: "\u8fd0\u884c\u4e2d",
 };
-
 function formatTokens(value?: number) {
   const n = Number(value || 0);
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
@@ -240,9 +241,8 @@ function formatTokens(value?: number) {
 }
 
 function formatCny(value?: number) {
-  return `¥${Number(value || 0).toFixed(4)}`;
+  return `\u00a5${Number(value || 0).toFixed(4)}`;
 }
-
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
@@ -290,6 +290,26 @@ function StatusBadge({ status, children }: { status?: string; children: React.Re
 }
 
 export default function App() {
+  return (
+    <I18nProvider>
+      <AppShell />
+    </I18nProvider>
+  );
+}
+
+function LanguageToggle() {
+  const { locale, setLocale, t } = useI18n();
+  const next: Locale = locale === "zh-CN" ? "en-US" : "zh-CN";
+
+  return (
+    <Button variant="secondary" size="sm" title={t("app.language")} onClick={() => setLocale(next)}>
+      <Languages className="h-4 w-4" />
+      {locale === "zh-CN" ? "EN" : "\u4e2d"}
+    </Button>
+  );
+}
+
+function AppShell() {
   const { path, navigate } = usePath();
   const compareJobId = path.startsWith("/compare/") ? decodeURIComponent(path.slice("/compare/".length)) : "";
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -409,6 +429,7 @@ function HomePage({
   navigate: (path: string) => void;
   notify: (message: string) => void;
 }) {
+  const { t } = useI18n();
   const [arxivInput, setArxivInput] = useState("");
   const [isFetching, setIsFetching] = useState(false);
   const [isSearchingArxiv, setIsSearchingArxiv] = useState(false);
@@ -524,15 +545,16 @@ function HomePage({
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-brand font-black text-primary-foreground shadow-primary">A</div>
             <div>
               <h1 className="text-lg font-black leading-none tracking-normal">arXiv Translate</h1>
-              <p className="mt-1 text-xs text-muted-foreground">论文翻译、编译与本地管理</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t("app.subtitle")}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <LanguageToggle />
             <Button variant="outline" onClick={() => refreshJobs().catch((error) => notify(error.message))}>
               <RefreshCw className="h-4 w-4" />
-              刷新
+              {t("app.refresh")}
             </Button>
-            <Button variant="secondary" size="icon" title="设置" onClick={() => navigate("/settings")}>
+            <Button variant="secondary" size="icon" title={t("app.settings")} onClick={() => navigate("/settings")}>
               <Settings className="h-4 w-4" />
             </Button>
           </div>
@@ -553,21 +575,21 @@ function HomePage({
                         <Sparkles className="h-3.5 w-3.5 text-primary" />
                         React + Tailwind + shadcn/ui
                       </div>
-                      <h2 className="text-3xl font-black tracking-normal max-sm:text-2xl">论文工作台</h2>
-                      <p className="mt-2 text-sm text-muted-foreground">源码、翻译、编译和反馈文件集中管理。</p>
+                      <h2 className="text-3xl font-black tracking-normal max-sm:text-2xl">{t("home.title")}</h2>
+                      <p className="mt-2 text-sm text-muted-foreground">{t("home.description")}</p>
                     </div>
                     <div className="relative w-80 max-md:w-full">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input className="bg-background/80 pl-9 shadow-sm" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索标题或 arXiv ID" />
+                      <Input className="bg-background/80 pl-9 shadow-sm" value={filter} onChange={(event) => setFilter(event.target.value)} placeholder={t("home.searchPlaceholder")} />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-5 gap-3 max-lg:grid-cols-3 max-sm:grid-cols-1">
-                    <MetricCard label="全部论文" value={jobs.length} />
-                    <MetricCard label="已翻译" value={translatedCount} />
-                    <MetricCard label="已编译" value={compiledCount} />
+                    <MetricCard label={t("home.totalPapers")} value={jobs.length} />
+                    <MetricCard label={t("home.translated")} value={translatedCount} />
+                    <MetricCard label={t("home.compiled")} value={compiledCount} />
                     <MetricCard label="Tokens" value={formatTokens(usageSummary.totalTokens)} />
-                    <MetricCard label="预估费用" value={formatCny(usageSummary.totalCost)} />
+                    <MetricCard label={t("home.estimatedCost")} value={formatCny(usageSummary.totalCost)} />
                   </div>
                 </CardContent>
               </Card>
@@ -581,8 +603,8 @@ function HomePage({
                   <Card className="grid min-h-72 place-items-center border-dashed bg-card/70 text-center animate-in">
                     <CardContent>
                       <FileText className="mx-auto mb-3 h-8 w-8 text-primary" />
-                      <b className="block">还没有论文任务</b>
-                      <span className="mt-2 block max-w-sm text-sm leading-6 text-muted-foreground">输入 arXiv ID 或上传源码包开始。任务会出现在这里。</span>
+                      <b className="block">{t("home.emptyTitle")}</b>
+                      <span className="mt-2 block max-w-sm text-sm leading-6 text-muted-foreground">{t("home.emptyDescription")}</span>
                     </CardContent>
                   </Card>
                 )}
@@ -594,13 +616,13 @@ function HomePage({
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Wand2 className="h-4 w-4 text-primary" />
-                    快速开始
+                    {t("home.quickStart")}
                   </CardTitle>
-                  <CardDescription>拉取 arXiv 源码或导入本地源码包。</CardDescription>
+                  <CardDescription>{t("home.quickStartDescription")}</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="arxiv-input">arXiv ID 或 URL</Label>
+                    <Label htmlFor="arxiv-input">{t("home.arxivInput")}</Label>
                     <div className="flex gap-2">
                       <Input
                         id="arxiv-input"
@@ -609,10 +631,10 @@ function HomePage({
                         onKeyDown={(event) => {
                           if (event.key === "Enter") searchArxiv();
                         }}
-                        placeholder="arXiv ID、URL 或关键词"
+                        placeholder={t("home.arxivPlaceholder")}
                         spellCheck={false}
                       />
-                      <Button size="icon" disabled={isFetching || isSearchingArxiv || isUploading} onClick={searchArxiv} aria-label="搜索或拉取源码">
+                      <Button size="icon" disabled={isFetching || isSearchingArxiv || isUploading} onClick={searchArxiv} aria-label={t("home.searchOrFetch")}>
                         {isFetching || isSearchingArxiv ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                       </Button>
                     </div>
@@ -665,8 +687,8 @@ function HomePage({
                     }}
                   >
                     {isUploading ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <FileArchive className="h-5 w-5 text-primary" />}
-                    <strong className="text-sm">{isUploading ? "正在导入源码包" : "选择或拖入 .tar.gz"}</strong>
-                    <span className="max-w-64 text-xs leading-6 text-muted-foreground">{isUploading ? "正在解包并识别主 tex 文件..." : "自动解包、识别主 tex 文件，并保存为一个本地任务。"}</span>
+                    <strong className="text-sm">{isUploading ? t("home.uploading") : t("home.uploadTar")}</strong>
+                    <span className="max-w-64 text-xs leading-6 text-muted-foreground">{isUploading ? t("home.uploadingHint") : t("home.uploadHint")}</span>
                     <input ref={fileRef} type="file" accept=".tar.gz,.gz" hidden onChange={(event: ChangeEvent<HTMLInputElement>) => uploadFile(event.target.files?.[0])} />
                   </button>
                 </CardContent>
@@ -674,21 +696,21 @@ function HomePage({
 
               <Card className="bg-card/80 shadow-soft">
                 <CardHeader>
-                  <CardTitle>运行状态</CardTitle>
-                  <CardDescription>当前后台任务和编译完成度。</CardDescription>
+                  <CardTitle>{t("home.runtime")}</CardTitle>
+                  <CardDescription>{t("home.runtimeDescription")}</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">后台任务</span>
-                    <StatusBadge status={runningCount ? "running" : "compiled"}>{runningCount ? `${runningCount} 个运行中` : "空闲"}</StatusBadge>
+                    <span className="text-muted-foreground">{t("home.backgroundTasks")}</span>
+                    <StatusBadge status={runningCount ? "running" : "compiled"}>{runningCount ? `${runningCount} ${t("status.running")}` : t("status.idle")}</StatusBadge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">PDF 产出</span>
+                    <span className="text-muted-foreground">{t("home.pdfOutput")}</span>
                     <span className="font-bold">{compiledCount}/{jobs.length}</span>
                   </div>
                   <Separator />
                   <div className="grid gap-2 text-sm">
-                    <span className="text-muted-foreground">Token 消耗</span>
+                    <span className="text-muted-foreground">{t("home.tokenTotal")}</span>
                     <div className="flex items-center justify-between">
                       <span className="font-mono font-bold">{formatTokens(usageSummary.totalTokens)}</span>
                       <span className="font-bold">{formatCny(usageSummary.totalCost)}</span>
@@ -730,6 +752,7 @@ function JobCard({
   deleteJob: (job: Pick<Job, "id" | "title">) => void;
   index: number;
 }) {
+  const { t } = useI18n();
   const status = runningTask ? "running" : job.status;
 
   return (
@@ -747,8 +770,8 @@ function JobCard({
         <h3 className="truncate text-[15px] font-black leading-6">{job.title}</h3>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <StatusBadge status="id">{job.id}</StatusBadge>
-          <StatusBadge status={status}>{statusLabels[status] || status}</StatusBadge>
-          <span>{job.fileCount || 0} 个文件</span>
+          <StatusBadge status={status}>{t(`status.${status}`, statusLabels[status] || status)}</StatusBadge>
+          <span>{job.fileCount || 0} {t("job.files")}</span>
           {job.relativeTime && <span>{job.relativeTime}</span>}
           {job.translationUsage && (
             <>
@@ -764,29 +787,29 @@ function JobCard({
           <>
             <Button variant="secondary" onClick={() => window.open(`/api/download-pdf/${job.id}`, "_blank")}>
               <FileText className="h-4 w-4" />
-              打开 PDF
+              {t("job.openPdf")}
             </Button>
             <Button variant="secondary" onClick={() => comparePdf(job.id)}>
               <Columns2 className="h-4 w-4" />
-              对照
+              {t("job.compare")}
             </Button>
           </>
         ) : job.hasCnTex ? (
           <Button onClick={() => openDetail(job.id)}>
             <Play className="h-4 w-4" />
-            编译
+            {t("job.compile")}
           </Button>
         ) : (
           <Button onClick={() => openDetail(job.id)}>
             <Wand2 className="h-4 w-4" />
-            翻译
+            {t("job.translate")}
           </Button>
         )}
         <Button variant="secondary" onClick={() => fetch(`/api/open/${job.id}`)}>
           <FolderOpen className="h-4 w-4" />
-          目录
+          {t("job.folder")}
         </Button>
-        <Button variant="destructive" size="icon" aria-label="删除任务" onClick={() => deleteJob(job)}>
+        <Button variant="destructive" size="icon" aria-label={t("job.delete")} onClick={() => deleteJob(job)}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </div>
@@ -809,6 +832,7 @@ function JobDetail({
   navigate: (path: string) => void;
   notify: (message: string) => void;
 }) {
+  const { t } = useI18n();
   const [meta, setMeta] = useState<JobMeta | null>(null);
   const [title, setTitle] = useState("");
   const [logs, setLogs] = useState<{ text: string; tone?: "phase" | "error" }[]>([]);
@@ -1063,7 +1087,7 @@ function JobDetail({
       <CardHeader>
         <Button variant="ghost" className="mb-2 w-fit px-0 text-primary hover:bg-transparent" onClick={backToList}>
           <ArrowLeft className="h-4 w-4" />
-          返回列表
+          {t("app.backList")}
         </Button>
         <Input
           className="h-auto border-x-0 border-t-0 bg-transparent px-0 pb-3 text-2xl font-black shadow-none focus-visible:ring-0"
@@ -1073,7 +1097,7 @@ function JobDetail({
         />
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <StatusBadge status="id">{jobId}</StatusBadge>
-          <span>{meta?.fileCount || "?"} 个文件</span>
+          <span>{meta?.fileCount || "?"} {t("job.files")}</span>
           <span>{meta?.createdAt ? new Date(meta.createdAt).toLocaleString("zh-CN") : "未知时间"}</span>
         </div>
       </CardHeader>
@@ -1083,7 +1107,7 @@ function JobDetail({
         {meta?.translationUsage && (
           <div className="grid grid-cols-4 gap-3 rounded-lg border bg-muted/25 p-3 text-sm max-lg:grid-cols-2 max-sm:grid-cols-1">
             <div>
-              <div className="text-xs text-muted-foreground">模型</div>
+              <div className="text-xs text-muted-foreground">{t("job.model")}</div>
               <div className="mt-1 font-semibold">{meta.translationUsage.model || meta.translationUsage.modelName}</div>
             </div>
             <div>
@@ -1091,11 +1115,11 @@ function JobDetail({
               <div className="mt-1 font-semibold">{formatTokens(meta.translationUsage.tokens?.totalTokens)}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">输出 Tokens</div>
+              <div className="text-xs text-muted-foreground">{t("job.outputTokens")}</div>
               <div className="mt-1 font-semibold">{formatTokens(meta.translationUsage.tokens?.outputTokens)}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground">预估费用</div>
+              <div className="text-xs text-muted-foreground">{t("home.estimatedCost")}</div>
               <div className="mt-1 font-semibold">{formatCny(meta.translationUsage.cost?.totalCost)}</div>
             </div>
           </div>
@@ -1126,7 +1150,7 @@ function JobDetail({
           <div className="rounded-lg border bg-background/70">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
               <div>
-                <div className="text-sm font-semibold">Tex 并行翻译</div>
+                <div className="text-sm font-semibold">{t("job.parallelTranslation")}</div>
                 <div className="text-xs text-muted-foreground">
                   当前 {threadProgress.length || Number(localStorage.getItem("parallelism") || 3)} 线程并发，
                   已完成 {fileProgress.filter((file) => file.status === "done").length}/{fileProgress.length}
@@ -1214,8 +1238,8 @@ function JobDetail({
           <div className="overflow-hidden rounded-lg border bg-background/70">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
               <div>
-                <div className="text-sm font-semibold">实时翻译输出</div>
-                <div className="text-xs text-muted-foreground">正在显示模型返回的最新内容</div>
+                <div className="text-sm font-semibold">{t("job.streamingOutput")}</div>
+                <div className="text-xs text-muted-foreground">{t("job.streamingOutputDesc")}</div>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
                 <StatusBadge status="id">{streamStats?.tokens || 0} tokens</StatusBadge>
@@ -1231,7 +1255,7 @@ function JobDetail({
 
         {logs.length > 0 && (
           <details className="overflow-hidden rounded-lg border bg-background/80">
-            <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-muted-foreground">查看原始日志</summary>
+            <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-muted-foreground">{t("job.rawLogs")}</summary>
             <ScrollArea className="max-h-60 border-t bg-muted/20">
               <div className="max-w-full p-4 font-mono text-xs leading-6 text-foreground">
                 {logs.map((log, index) => (
@@ -1248,27 +1272,27 @@ function JobDetail({
         <div className="flex flex-wrap gap-2">
           <Button onClick={runTranslate} disabled={isStartingTranslate}>
             {isStartingTranslate ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-            {isStartingTranslate ? "启动中" : "翻译中文"}
+            {isStartingTranslate ? t("job.starting") : t("job.translate")}
           </Button>
           <Button onClick={runCompile} disabled={isCompiling}>
             {isCompiling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            {isCompiling ? "编译中" : "编译 PDF"}
+            {isCompiling ? t("job.compiling") : t("job.compile")}
           </Button>
           <Button variant="secondary" onClick={() => fetch(`/api/open/${jobId}`)}>
             <FolderOpen className="h-4 w-4" />
-            打开目录
+            {t("job.openFolder")}
           </Button>
           <Button variant="secondary" onClick={runFeedback} disabled={isPackagingFeedback}>
             {isPackagingFeedback ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bug className="h-4 w-4" />}
-            {isPackagingFeedback ? "打包中" : "一键反馈"}
+            {isPackagingFeedback ? t("job.packaging") : t("job.feedback")}
           </Button>
           <Button variant="secondary" onClick={() => fetch("/api/open-feedback-folder")}>
             <FolderOpen className="h-4 w-4" />
-            查看反馈文件夹
+            {t("job.openFeedbackFolder")}
           </Button>
           <Button variant="destructive" onClick={() => deleteJob({ id: jobId, title }, backToList)}>
             <Trash2 className="h-4 w-4" />
-            删除任务
+            {t("job.delete")}
           </Button>
         </div>
 
@@ -1277,12 +1301,12 @@ function JobDetail({
             <Button asChild variant="secondary" className="w-fit">
               <a href={`/api/download-pdf/${jobId}`} target="_blank" rel="noreferrer">
                 <FileText className="h-4 w-4" />
-                打开 PDF
+                {t("job.openPdf")}
               </a>
             </Button>
             <Button variant="secondary" onClick={() => navigate(`/compare/${encodeURIComponent(jobId)}`)}>
               <Columns2 className="h-4 w-4" />
-              双页对照
+              {t("job.compare")}
             </Button>
           </div>
         )}
@@ -1370,6 +1394,7 @@ function JobDetail({
 }
 
 function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: (path: string) => void; notify: (message: string) => void }) {
+  const { t } = useI18n();
   const [info, setInfo] = useState<PdfCompareInfo | null>(null);
   const [title, setTitle] = useState(jobId);
   const [isPreparing, setIsPreparing] = useState(true);
@@ -1381,7 +1406,7 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
 
   useEffect(() => {
     let cancelled = false;
-    const toastId = toast.loading("正在准备双页 PDF 对照...");
+    const toastId = toast.loading(t("compare.preparing"));
     setIsPreparing(true);
     setError("");
     Promise.all([
@@ -1396,11 +1421,11 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
         if (cancelled) return;
         if (meta?.title) setTitle(meta.title);
         setInfo(prepared);
-        toast.success("双页对照已准备好", { id: toastId });
+        toast.success(t("compare.readyToast"), { id: toastId });
       })
       .catch((err) => {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : "准备双页对照失败";
+        const message = err instanceof Error ? err.message : t("compare.error");
         setError(message);
         toast.error(message, { id: toastId });
       })
@@ -1411,7 +1436,7 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
       cancelled = true;
       toast.dismiss(toastId);
     };
-  }, [jobId]);
+  }, [jobId, t]);
 
   const syncScroll = (source: HTMLDivElement | null, target: HTMLDivElement | null) => {
     if (!source || !target || syncingRef.current) return;
@@ -1433,18 +1458,18 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
           <div className="min-w-0">
             <Button variant="ghost" className="mb-1 h-auto px-0 py-0 text-primary hover:bg-transparent" onClick={() => navigate("/")}>
               <ArrowLeft className="h-4 w-4" />
-              返回工作台
+              {t("app.backHome")}
             </Button>
             <div className="truncate text-sm font-bold">{title}</div>
           </div>
           <div className="flex items-center gap-2">
             <StatusBadge status={isPreparing ? "running" : error ? "empty" : "compiled"}>
-              {isPreparing ? "准备中" : error ? "准备失败" : `${info?.pageCount || 0} 页同步`}
+              {isPreparing ? t("compare.preparingShort") : error ? t("compare.failed") : `${info?.pageCount || 0} ${t("compare.ready")}`}
             </StatusBadge>
             <Button asChild variant="secondary">
               <a href={`/api/download-pdf/${jobId}`} target="_blank" rel="noreferrer">
                 <FileText className="h-4 w-4" />
-                中文 PDF
+                {t("compare.openTranslated")}
               </a>
             </Button>
           </div>
@@ -1463,7 +1488,7 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
         {!isPreparing && info && info.renderer && pages.length > 0 && (
           <div className="grid h-[calc(100vh-112px)] grid-cols-2 overflow-hidden rounded-lg border bg-card shadow-soft animate-in max-lg:h-auto max-lg:grid-cols-1">
             <PdfPane
-              title="英文原文"
+              title={t("compare.original")}
               side="original"
               jobId={jobId}
               pages={pages}
@@ -1473,7 +1498,7 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
               onScroll={() => syncScroll(leftRef.current, rightRef.current)}
             />
             <PdfPane
-              title="中文译文"
+              title={t("compare.translated")}
               side="translated"
               jobId={jobId}
               pages={pages}
@@ -1497,10 +1522,11 @@ function PdfComparePage({ jobId, navigate, notify }: { jobId: string; navigate: 
 }
 
 function PdfCompareSkeleton() {
+  const { t } = useI18n();
   const pages = [1, 2, 3];
   return (
     <div className="grid h-[calc(100vh-112px)] grid-cols-2 overflow-hidden rounded-lg border bg-card shadow-soft animate-in max-lg:h-auto max-lg:grid-cols-1">
-      {["英文原文", "中文译文"].map((title) => (
+      {[t("compare.original"), t("compare.translated")].map((title) => (
         <section key={title} className="flex min-h-0 flex-col border-l first:border-l-0">
           <div className="flex h-11 shrink-0 items-center justify-between border-b bg-background/90 px-4">
             <div className="h-4 w-20 rounded bg-muted animate-pulse" />
@@ -1698,6 +1724,7 @@ function PdfPane({
 }
 
 function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; notify: (message: string) => void }) {
+  const { t } = useI18n();
   const [apiKey, setApiKey] = useState("");
   const [apiEndpoint, setApiEndpoint] = useState("https://api.deepseek.com/anthropic");
   const [model, setModel] = useState("deepseek-v4-pro");
@@ -1809,21 +1836,24 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 place-items-center rounded-lg bg-brand font-black text-primary-foreground shadow-primary">A</div>
             <div>
-              <h1 className="text-lg font-black tracking-normal">设置</h1>
-              <p className="text-xs text-muted-foreground">API 配置与 LaTeX 编译器路径</p>
+              <h1 className="text-lg font-black tracking-normal">{t("settings.title")}</h1>
+              <p className="text-xs text-muted-foreground">{t("settings.description")}</p>
             </div>
           </div>
-          <Button variant="secondary" onClick={() => navigate("/")}>
-            返回任务
-          </Button>
+          <div className="flex items-center gap-2">
+            <LanguageToggle />
+            <Button variant="secondary" onClick={() => navigate("/")}>
+              {t("app.backHome")}
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto grid w-[min(860px,calc(100%_-_2rem))] gap-4 py-7">
         <Card className="bg-card/85 animate-in">
           <CardHeader>
-            <CardTitle>翻译 API</CardTitle>
-            <CardDescription>配置会保存在本机 localStorage 中，仅用于当前应用发起翻译请求。</CardDescription>
+            <CardTitle>{t("settings.translationApi")}</CardTitle>
+            <CardDescription>{t("settings.translationApiDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
             <Field label="API Key">
@@ -1855,11 +1885,11 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
             <div className="flex flex-wrap gap-2">
             <Button onClick={save}>
               <CheckCircle2 className="h-4 w-4" />
-              保存设置
+              {t("settings.save")}
             </Button>
               <Button variant="secondary" onClick={verifyApiKey} disabled={isVerifyingApi}>
                 {isVerifyingApi ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                验证 API Key
+                {t("settings.verifyApi")}
               </Button>
             </div>
           </CardContent>
@@ -1867,17 +1897,17 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
 
         <Card className="bg-card/85 animate-in [animation-delay:80ms]">
           <CardHeader>
-            <CardTitle>LaTeX 编译器</CardTitle>
-            <CardDescription>默认自动查找 xelatex；也可以指定 MiKTeX 或 TeX Live 的完整路径。</CardDescription>
+            <CardTitle>{t("settings.latexCompiler")}</CardTitle>
+            <CardDescription>{t("settings.latexCompilerDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
-            <Field label="xelatex 路径">
+            <Field label={t("settings.xelatexPath")}>
               <Input value={xelatexPath} onChange={(event) => setXelatexPath(event.target.value)} placeholder="C:\Program Files\MiKTeX\miktex\bin\x64\xelatex.exe" />
             </Field>
             <div className="flex flex-wrap gap-2">
               <Button onClick={detectXelatex}>
                 <Search className="h-4 w-4" />
-                自动检测
+                {t("settings.autoDetect")}
               </Button>
               <Button
                 variant="secondary"
@@ -1887,12 +1917,12 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
                   setStatus({ text: "已清空自定义路径，编译时会回到自动查找。", tone: "neutral" });
                 }}
               >
-                清空自定义路径
+                {t("settings.clearPath")}
               </Button>
               <Button variant="outline" asChild>
                 <a href="https://miktex.org/" target="_blank" rel="noreferrer">
                   <ExternalLink className="h-4 w-4" />
-                  下载 MiKTeX
+                  {t("settings.downloadMiktex")}
                 </a>
               </Button>
             </div>
@@ -1913,13 +1943,13 @@ function SettingsPage({ navigate, notify }: { navigate: (path: string) => void; 
 
         <Card className="bg-card/85 animate-in [animation-delay:120ms]">
           <CardHeader>
-            <CardTitle>应用更新</CardTitle>
-            <CardDescription>通过 GitHub Releases 检查桌面应用的新版本。</CardDescription>
+            <CardTitle>{t("settings.update")}</CardTitle>
+            <CardDescription>{t("settings.updateDesc")}</CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={checkUpdates} disabled={isCheckingUpdate}>
               {isCheckingUpdate ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              检查更新
+              {t("settings.update")}
             </Button>
             <Button variant="outline" asChild>
               <a href="https://github.com/fanrj3/arxivTexTranslate/releases" target="_blank" rel="noreferrer">
